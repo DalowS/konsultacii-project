@@ -15,7 +15,7 @@ GitHub не е база данни. Всички данни са в Supabase.
 2. **Authentication → Providers → Email**: решете дали искате потвърждение по имейл. **Препоръка:** след като учителите са се регистрирали, изключете „Allow new users to sign up“ – иначе всеки с адреса може да си направи профил.
 3. **Authentication → URL Configuration**: Site URL = адресът на GitHub Pages.
 4. **Project Settings → API**: копирайте **Publishable key** (`sb_publishable_…`) в `js/config.js`. Никога не слагайте secret/service_role ключ.
-5. Админът е `s.dalov98@gmail.com` (`teachers.role='admin'`). Други админи – от „Админ панел → Потребители“.
+5. Админът е ` (`teachers.role='admin'`). Други админи – от „Админ панел → Потребители“.
 
 ## GitHub Pages
 Качете файловете в репозитори → Settings → Pages → Deploy from branch (`main`, `/root`). Може да се отвори и локално през `python3 -m http.server`.
