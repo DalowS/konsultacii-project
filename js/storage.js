@@ -13,6 +13,7 @@ const storage = {
 
     getAll() { return this._cache; },
     getClassNames() { return this._classes.map(c => c.name); },
+    getClasses() { return this._classes; },
     getGroupSubjectRows() { return this._groupSubjects; },
     getTeachers() { return this._teachers; },
 
@@ -125,5 +126,31 @@ const storage = {
     async updateTeacher(id, patch) {
         const { error } = await sb.from("teachers").update(patch).eq("id", id);
         if (error) throw error;
+    },
+
+    // Класове – валидация и нормализация и на сървъра (RPC); изтриването е защитено от trigger.
+    async addClass(grade, letter) {
+        const { error } = await sb.rpc("admin_add_class", { p_grade: Number(grade), p_letter: letter });
+        if (error) throw error;
+        await this.refresh();
+    },
+
+    async deleteClass(id) {
+        const { data, error } = await sb.from("classes").delete().eq("id", Number(id)).select("id");
+        if (error) throw error;
+        if (!data || !data.length) {
+            const e = new Error("Класът не е изтрит (няма право или вече не съществува).");
+            e.code = "CS001";
+            throw e;
+        }
+        await this.refresh();
+    },
+
+    // Изтрива Auth акаунта + консултациите в една транзакция (SECURITY DEFINER RPC, без service_role).
+    async deleteTeacher(id) {
+        const { data, error } = await sb.rpc("admin_delete_teacher", { p_teacher: id });
+        if (error) throw error;
+        await this.refresh();
+        return data;
     }
 };

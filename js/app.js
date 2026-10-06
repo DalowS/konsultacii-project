@@ -5,31 +5,8 @@ const CONFIG = {
     schoolName: "Училище",
     classes: [],   // зареждат се от public.classes
     days: DAY_NAMES,
-    // И двете смени са с по 8 часови интервала.
-    // I смяна: 12:35-18:30 | II смяна: 07:30-13:15
-    hours:[1,2,3,4,5,6,7,8],
-    hourLabels:{
-      1:[
-        "12:35-13:15",
-        "13:20-14:00",
-        "14:05-14:45",
-        "14:50-15:30",
-        "15:35-16:15",
-        "16:20-17:00",
-        "17:05-17:45",
-        "17:55-18:30"
-      ],
-      2:[
-        "07:30-08:10",
-        "08:15-08:55",
-        "09:00-09:40",
-        "09:45-10:25",
-        "10:30-11:10",
-        "11:15-11:55",
-        "12:00-12:40",
-        "12:40-13:15"
-      ]
-    }
+    // Часовете са в js/logic.js (TIME_SLOTS): 7 позиции на смяна; 12:35 - 13:15 е отделна клетка и в двете смени.
+    hours: POSITIONS
 };
 
 /* ---- Запазен от v1.7 код: рендериране и модали ---- */
@@ -41,8 +18,8 @@ function isGroupSubject(subject) {
 function getCellRecords(className, shift, day, hour) {
     return storage.getAll().filter(record =>
         normalizeClasses(record).includes(className) &&
-        Number(record.shift) === Number(shift) &&
-        record.day === day &&
+        Number(record.shift) === Number(shift) &&      // I смяна/7 и II смяна/1 са ОТДЕЛНИ клетки –
+        record.day === day &&                          // нищо не се оглежда между тях
         Number(record.hour) === Number(hour)
     );
 }
@@ -55,6 +32,10 @@ function renderSchedule() {
         `${className} • ${shift === 1 ? "I смяна" : "II смяна"}`;
 
     const table = document.getElementById("scheduleTable");
+    if (!className) {
+        table.innerHTML = `<tbody><tr><td style="padding:20px;">Няма класове за този етап.</td></tr></tbody>`;
+        return;
+    }
     let html = `
         <thead>
             <tr>
@@ -67,7 +48,7 @@ function renderSchedule() {
 
     CONFIG.hours.forEach(hour => {
         html += `<tr>`;
-        html += `<td class="hour-cell">${(CONFIG.hourLabels[shift] || [])[hour - 1] || (hour + " час")}</td>`;
+        html += `<td class="hour-cell">${positionLabel(shift, hour) || (hour + " час")}</td>`;
 
         CONFIG.days.forEach(day => {
             const records = getCellRecords(className, shift, day, hour);
@@ -132,10 +113,8 @@ function openAddModal(className, shift, day, hour) {
         "Добавяне на консултация";
 
     document.getElementById("modalClass").value = className;
-    document.getElementById("modalShift").value =
-        shift === 1 ? "I смяна" : "II смяна";
     document.getElementById("modalDay").value = day;
-    document.getElementById("modalHour").value = (CONFIG.hourLabels[shift]||[])[hour-1] || hour;
+    setModalSlot(shift, hour);
     document.getElementById("modalSubject").value = "";
     document.getElementById("modalLocation").value = "";
     buildExtraClasses();
@@ -162,11 +141,9 @@ function editConsultation(id) {
     document.getElementById("modalTitle").textContent =
         "Редактиране на консултация";
 
-    document.getElementById("modalClass").value = record.className;
-    document.getElementById("modalShift").value =
-        record.shift === 1 ? "I смяна" : "II смяна";
+    document.getElementById("modalClass").value = primaryClassForStage(record);
     document.getElementById("modalDay").value = record.day;
-    document.getElementById("modalHour").value = (CONFIG.hourLabels[record.shift]||[])[record.hour-1] || record.hour;
+    setModalSlot(record.shift, record.hour);
     document.getElementById("modalSubject").value = record.subject || "";
     document.getElementById("modalLocation").value = record.location || "";
     buildExtraClasses();
@@ -195,7 +172,7 @@ function populateAdminFilters() {
 
     select.innerHTML = `<option value="">Всички класове</option>`;
 
-    CONFIG.classes.forEach(className => {
+    stageClasses().forEach(className => {
         const option = document.createElement("option");
         option.value = className;
         option.textContent = className;
@@ -206,16 +183,16 @@ function populateAdminFilters() {
 }
 
 function renderAdminStats() {
-    const records = storage.getAll();
+    const records = scopedRecords();
     const teachers = [...new Set(records.map(r => r.teacher).filter(Boolean))];
-    const occupiedCells = new Set();
-    records.forEach(record => {
-        normalizeClasses(record).forEach(className => {
-            occupiedCells.add(`${className}|${record.shift}|${record.day}|${record.hour}`);
-        });
-    });
+    const label = document.getElementById("adminStageLabel");
+    if (label) label.textContent = STAGES[currentStage].label;
 
     document.getElementById("adminStats").innerHTML = `
+        <div class="admin-stat">
+            <span>Класове</span>
+            <strong>${stageClasses().length}</strong>
+        </div>
         <div class="admin-stat">
             <span>Общо консултации</span>
             <strong>${records.length}</strong>
@@ -226,7 +203,7 @@ function renderAdminStats() {
         </div>
         <div class="admin-stat">
             <span>Заети клетки</span>
-            <strong>${occupiedCells.size}</strong>
+            <strong>${countOccupiedCells(records)}</strong>
         </div>
     `;
 }
@@ -234,6 +211,8 @@ function renderAdminStats() {
 function renderAdminTable() {
     const table = document.getElementById("adminTable");
     if (!table) return;
+    const stageLabel = document.getElementById("adminTableStage");
+    if (stageLabel) stageLabel.textContent = STAGES[currentStage].label;
 
     const classFilter = document.getElementById("adminClassFilter")?.value || "";
     const shiftFilter = document.getElementById("adminShiftFilter")?.value || "";
@@ -241,7 +220,7 @@ function renderAdminTable() {
         .trim()
         .toLowerCase();
 
-    let records = storage.getAll().filter(record => {
+    let records = scopedRecords().filter(record => {
         const classOK = !classFilter || normalizeClasses(record).includes(classFilter);
         const shiftOK = !shiftFilter || String(record.shift) === shiftFilter;
         const teacherOK = !teacherFilter ||
@@ -294,9 +273,9 @@ function renderAdminTable() {
         html += `
             <tr>
                 <td>${escapeHtml(normalizeClasses(record).join(", "))}</td>
-                <td>${record.shift === 1 ? "I" : "II"}</td>
+                <td>${shiftText(record.shift)}</td>
                 <td>${escapeHtml(record.day)}</td>
-                <td>${(CONFIG.hourLabels[record.shift]||[])[record.hour-1] || record.hour}</td>
+                <td>${escapeHtml(hourLabel(record))}</td>
                 <td><strong>${escapeHtml(record.subject)}</strong></td>
                 <td>${escapeHtml(record.location || "")}</td>
                 <td>${escapeHtml(record.teacher)}</td>
@@ -331,11 +310,9 @@ function adminEdit(id) {
     document.getElementById("modalTitle").textContent =
         "Администраторска редакция";
 
-    document.getElementById("modalClass").value = record.className;
-    document.getElementById("modalShift").value =
-        record.shift === 1 ? "I смяна" : "II смяна";
+    document.getElementById("modalClass").value = primaryClassForStage(record);
     document.getElementById("modalDay").value = record.day;
-    document.getElementById("modalHour").value = (CONFIG.hourLabels[record.shift]||[])[record.hour-1] || record.hour;
+    setModalSlot(record.shift, record.hour);
     document.getElementById("modalSubject").value = record.subject || "";
     document.getElementById("modalLocation").value = record.location || "";
     buildExtraClasses();
@@ -381,6 +358,8 @@ function showStatus(message, type) {
     ==========================================================
 */
 let adminEditingId = "";
+let currentStage = DEFAULT_STAGE;        // един списък класове/консултации, филтрира се само изгледът
+const STAGE_PREF_KEY = "grafik.stage";   // предпочитание на интерфейса (не данни)
 let saving = false;
 let realtimeChannel = null;
 let pollTimer = null;
@@ -479,6 +458,7 @@ async function handleSession(session) {
         isAdmin = profile.role === "admin";
         currentTeacher = profile.name;
         CONFIG.classes = storage.getClassNames();
+        loadStagePreference();
         populateClasses();
         startRealtime();
         showTeacherScreen();
@@ -570,6 +550,7 @@ async function logout() {
 */
 function showTeacherScreen() {
     showScreen("teacherScreen");
+    renderStageTabs();
     document.getElementById("currentTeacher").textContent = currentTeacher;
     document.getElementById("headerUser").textContent =
         currentTeacher + (isAdmin ? " • Администратор" : "");
@@ -580,9 +561,11 @@ function showTeacherScreen() {
 function showAdminScreen() {
     if (!isAdmin) return;               // само UX; реалната защита е RLS/RPC
     showScreen("adminScreen");
+    renderStageTabs();
     populateAdminFilters();
     renderGroupSubjects();
     renderTeachersAdmin();
+    renderClassesAdmin();
     refreshAdmin();
 }
 
@@ -594,7 +577,7 @@ function showAdminScreen() {
 function startRealtime() {
     stopRealtime();
     realtimeChannel = sb.channel("schedule-sync");
-    ["consultations", "consultation_classes", "group_subjects"].forEach(table => {
+    ["consultations", "consultation_classes", "group_subjects", "classes", "teachers"].forEach(table => {
         realtimeChannel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
     });
     realtimeChannel.subscribe(status => {
@@ -644,9 +627,48 @@ function renderViews() {
     if (isVisible("teacherScreen")) renderSchedule();
     if (isVisible("adminScreen")) {
         refreshAdmin();
+        renderClassesAdmin();
         if (!document.activeElement || !document.activeElement.closest("#teachersAdmin")) renderTeachersAdmin();
         if (!document.activeElement || !document.activeElement.closest("#groupSubjectsContainer")) renderGroupSubjects();
     }
+}
+
+/*
+    ==========================================================
+    ЕТАПИ (гимназиален / прогимназиален) – само филтриране на изгледа
+    ==========================================================
+*/
+function loadStagePreference() {
+    try {
+        const v = localStorage.getItem(STAGE_PREF_KEY);
+        if (STAGE_ORDER.includes(v)) currentStage = v;
+    } catch (e) { /* няма достъп до storage – ползваме подразбиране */ }
+}
+
+const stageClasses = () => classesOfStage(CONFIG.classes, currentStage);
+const scopedRecords = () => scopeRecords(storage.getAll(), currentStage);
+
+// Основен клас при редакция: първият от текущия етап.
+function primaryClassForStage(record) {
+    return normalizeClasses(record).find(c => stageOfClass(c) === currentStage) || record.className;
+}
+
+function renderStageTabs() {
+    document.querySelectorAll("[data-stage-tabs]").forEach(box => {
+        box.innerHTML = STAGE_ORDER.map(key =>
+            `<button type="button" class="stage-tab ${key === currentStage ? "btn-primary" : "btn-secondary"}" ` +
+            `aria-pressed="${key === currentStage}" onclick="setStage('${key}')">${escapeHtml(STAGES[key].label)}</button>`
+        ).join("");
+    });
+}
+
+function setStage(stage) {
+    if (!STAGE_ORDER.includes(stage) || stage === currentStage) return;
+    currentStage = stage;
+    try { localStorage.setItem(STAGE_PREF_KEY, stage); } catch (e) { /* не е критично */ }
+    populateClasses();
+    renderStageTabs();
+    renderViews();
 }
 
 /*
@@ -658,20 +680,20 @@ function populateClasses() {
     const select = document.getElementById("classSelect");
     const current = select.value;
     select.innerHTML = "";
-    CONFIG.classes.forEach(className => {
+    stageClasses().forEach(className => {
         const option = document.createElement("option");
         option.value = className;
         option.textContent = className;
         select.appendChild(option);
     });
-    if (CONFIG.classes.includes(current)) select.value = current;
+    if (stageClasses().includes(current)) select.value = current;
 }
 
 function buildExtraClasses() {
     const box = document.getElementById("extraClassesBox");
     if (!box) return;
     box.innerHTML = "";
-    CONFIG.classes.forEach(c => {
+    stageClasses().forEach(c => {
         const lbl = document.createElement("label");
         lbl.innerHTML = `<input type="checkbox" class="extraClass" value="${escapeHtml(c)}"> ${escapeHtml(c)}`;
         box.appendChild(lbl);
@@ -747,7 +769,12 @@ function renderTeachersAdmin() {
                 <option value="teacher" ${t.role === "teacher" ? "selected" : ""}>Учител</option>
                 <option value="admin" ${t.role === "admin" ? "selected" : ""}>Администратор</option>
             </select></td>
-            <td><button class="btn-primary" onclick="saveTeacher('${t.id}', this)">Запази</button></td>
+            <td>
+                <button class="btn-primary" onclick="saveTeacher('${t.id}', this)">Запази</button>
+                ${currentUser && t.id === currentUser.id
+                    ? `<em style="margin-left:8px;color:#64748b;">(Вие)</em>`
+                    : `<button class="btn-danger" onclick="removeTeacher('${t.id}', this)">Премахни</button>`}
+            </td>
         </tr>`).join("") + `</tbody>`;
 }
 
@@ -775,18 +802,20 @@ async function saveConsultation() {
     if (saving) return;                     // защита от двоен клик
 
     const className = document.getElementById("modalClass").value;
-    const shift = document.getElementById("modalShift").value === "I смяна" ? 1 : 2;
+    const { shift, hour } = modalSlot;
     const day = document.getElementById("modalDay").value;
-    const hour = (CONFIG.hourLabels[shift] || []).indexOf(document.getElementById("modalHour").value) + 1;
     const subject = document.getElementById("modalSubject").value.trim();
     const location = document.getElementById("modalLocation").value.trim();
     const id = document.getElementById("modalId").value;
     const checked = [...document.querySelectorAll(".extraClass:checked")].map(x => x.value);
-    const classes = [...new Set([className, ...checked])];
     const effectiveId = adminEditingId || id;
+    // При редакция на консултация с класове и от другия етап, тези класове не се губят.
+    const original = effectiveId ? storage.getAll().find(r => r.id === effectiveId) : null;
+    const outside = original ? normalizeClasses(original).filter(c => stageOfClass(c) !== currentStage) : [];
+    const classes = [...new Set([className, ...checked, ...outside])];
 
     if (!subject) { alert("Моля, въведете предмет."); return; }
-    if (!hour) { alert("Невалиден час."); return; }
+    if (!isValidPosition(shift, hour)) { alert("Невалиден час. Този запис е със стара стойност на часа – изтрийте го и го създайте отново."); return; }
 
     const btn = document.querySelector("#modalOverlay .btn-primary");
     saving = true;
@@ -828,7 +857,7 @@ function deleteOwnConsultation(id) {
 
 function adminDelete(id) {
     return deleteConsultation(id, r =>
-        `${r.className} • ${r.day} • ${r.hour} час\n${r.subject} • ${r.teacher}`);
+        `${r.className} • ${r.day} • ${hourLabel(r)}\n${r.subject} • ${r.teacher}`);
 }
 
 /*
@@ -880,7 +909,7 @@ async function clearAllData() {
     if (count === 0) { alert("Няма записи за изтриване."); return; }
 
     const confirmation = prompt(
-        `Това ще изтрие ЗАВИНАГИ ВСИЧКИ ${count} консултации за ВСИЧКИ учители.\n` +
+        `Това ще изтрие ЗАВИНАГИ ВСИЧКИ ${count} консултации за ВСИЧКИ учители и за ДВАТА етапа.\n` +
         `Преди това автоматично ще бъде изтеглено резервно копие (JSON).\n\n` +
         `За потвърждение напишете: ИЗТРИЙ`);
     if (confirmation !== "ИЗТРИЙ") { alert("Операцията е отменена."); return; }
@@ -974,27 +1003,30 @@ async function importLocalData() {
     ==========================================================
 */
 function hourLabel(r) {
-    return (CONFIG.hourLabels[r.shift] || [])[r.hour - 1] || r.hour;
+    return positionLabel(r.shift, r.hour) || `${r.hour} (невалиден час)`;
 }
 
 function exportCSV() {
-    const records = storage.getAll();
-    if (records.length === 0) { alert("Няма данни за експортиране."); return; }
+    const stage = STAGES[currentStage];
+    const records = scopedRecords();
+    if (records.length === 0) { alert(`Няма данни за експортиране (${stage.label}).`); return; }
 
     const header = ["Учител", "Предмет", "Класове", "Ден", "Смяна", "Час", "Място"];
     const rows = records.map(r => [r.teacher, r.subject, normalizeClasses(r).join(", "),
-        r.day, r.shift === 1 ? "I" : "II", hourLabel(r), r.location || ""]);
+        r.day, shiftText(r.shift), hourLabel(r), r.location || ""]);
     const csv = [header, ...rows].map(row => row.map(csvCell).join(";")).join("\n");
-    downloadFile("grafik-konsultacii.csv", "\uFEFF" + csv, "text/csv;charset=utf-8;");
+    downloadFile(`grafik-konsultacii-${stage.file}.csv`, "\uFEFF" + csv, "text/csv;charset=utf-8;");
 }
 
 function printScheduleReport() {
-    const records = storage.getAll();
-    if (!records.length) { alert("Няма данни."); return; }
+    const stage = STAGES[currentStage];
+    const records = scopedRecords();
+    if (!records.length) { alert(`Няма данни (${stage.label}).`); return; }
     const w = window.open("", "_blank");
     if (!w) { alert("Браузърът блокира новия прозорец."); return; }
-    let html = `<html><head><meta charset="utf-8"><title>График</title></head><body><h2>ГРАФИК ЗА КОНСУЛТАЦИИ</h2><table border="1" cellspacing="0" cellpadding="6"><tr><th>Учител</th><th>Предмет</th><th>Класове</th><th>Ден</th><th>Смяна</th><th>Час</th><th>Място</th></tr>`;
-    records.forEach(r => html += `<tr><td>${escapeHtml(r.teacher)}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.classes.join(", "))}</td><td>${escapeHtml(r.day)}</td><td>${r.shift === 1 ? "I" : "II"}</td><td>${escapeHtml(hourLabel(r))}</td><td>${escapeHtml(r.location || "")}</td></tr>`);
+    const title = `График за консултации – ${stage.label}`;
+    let html = `<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><h2>${escapeHtml(title)}</h2><table border="1" cellspacing="0" cellpadding="6"><tr><th>Учител</th><th>Предмет</th><th>Класове</th><th>Ден</th><th>Смяна</th><th>Час</th><th>Място</th></tr>`;
+    records.forEach(r => html += `<tr><td>${escapeHtml(r.teacher)}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.classes.join(", "))}</td><td>${escapeHtml(r.day)}</td><td>${shiftText(r.shift)}</td><td>${escapeHtml(hourLabel(r))}</td><td>${escapeHtml(r.location || "")}</td></tr>`);
     html += "</table></body></html>";
     w.document.write(html);
     w.document.close();
@@ -1002,10 +1034,11 @@ function printScheduleReport() {
 }
 
 function showMyConsultations() {
-    const records = storage.getAll().filter(r => r.teacherId === currentUser.id);
-    document.getElementById("myConsultationsList").innerHTML = records.map(r =>
-        `<div style="padding:8px;border-bottom:1px solid #ddd"><b>${escapeHtml(r.subject)}</b><br>${escapeHtml(r.day)} | ${r.shift === 1 ? "I" : "II"} смяна | ${escapeHtml(hourLabel(r))}<br>Класове: ${escapeHtml(r.classes.join(", "))}${r.location ? `<br>Място: ${escapeHtml(r.location)}` : ""}</div>`
-    ).join("") || "Няма консултации";
+    const records = scopedRecords().filter(r => r.teacherId === currentUser.id);
+    const note = `<div style="padding:4px 8px 10px;color:#64748b;font-size:13px;">${escapeHtml(STAGES[currentStage].label)} – за другия етап превключете раздела.</div>`;
+    document.getElementById("myConsultationsList").innerHTML = note + (records.map(r =>
+        `<div style="padding:8px;border-bottom:1px solid #ddd"><b>${escapeHtml(r.subject)}</b><br>${escapeHtml(r.day)} | ${shiftText(r.shift)} смяна | ${escapeHtml(hourLabel(r))}<br>Класове: ${escapeHtml(r.classes.join(", "))}${r.location ? `<br>Място: ${escapeHtml(r.location)}` : ""}</div>`
+    ).join("") || "Няма консултации");
     document.getElementById("myConsultationsModal").style.display = "flex";
 }
 
@@ -1018,4 +1051,100 @@ function refreshAdmin() {
     populateAdminFilters();
     renderAdminTable();
     renderAdminStats();
+}
+
+/*
+    ==========================================================
+    ЧАСОВЕ: контекст на модала + етикети
+    ==========================================================
+*/
+let modalSlot = { shift: 1, hour: 1 };
+
+function setModalSlot(shift, hour) {
+    modalSlot = { shift: Number(shift), hour: Number(hour) };
+    document.getElementById("modalShift").value = Number(shift) === 1 ? "I смяна" : "II смяна";
+    document.getElementById("modalHour").value = positionLabel(shift, hour) || `${hour} (невалиден час)`;
+}
+
+
+/*
+    ==========================================================
+    КЛАСОВЕ (admin): добавяне / изтриване
+    ==========================================================
+*/
+function renderClassesAdmin() {
+    const box = document.getElementById("classesAdmin");
+    if (!box) return;
+    const used = new Map();
+    storage.getAll().forEach(r => r.classes.forEach(c => used.set(c, (used.get(c) || 0) + 1)));
+    box.innerHTML = `<thead><tr><th>Клас</th><th>Консултации</th><th></th></tr></thead><tbody>` +
+        storage.getClasses().map(c => {
+            const n = used.get(c.name) || 0;
+            return `<tr>
+                <td><strong>${escapeHtml(c.name)}</strong></td>
+                <td>${n}</td>
+                <td>${n
+                    ? `<em style="color:#64748b;">Има консултации – не може да се изтрие</em>`
+                    : `<button class="btn-danger" onclick="deleteClass('${Number(c.id)}', this)">Изтрий</button>`}</td>
+            </tr>`;
+        }).join("") + `</tbody>`;
+}
+
+async function addClass(event) {
+    const btn = event && event.currentTarget;
+    const result = buildClassName(
+        document.getElementById("newClassGrade").value,
+        document.getElementById("newClassLetter").value);
+    if (!result.ok) { alert(result.error); return; }
+    if (storage.getClassNames().includes(result.name)) { alert(`Класът ${result.name} вече съществува.`); return; }
+
+    setBusy(btn, true, "Добавяне...");
+    try {
+        await storage.addClass(result.grade, result.letter);
+        document.getElementById("newClassLetter").value = "";
+        renderViews();
+        showAdminStatus(`Класът ${result.name} е добавен.`, "success");
+    } catch (error) {
+        showError(error, "Неуспешно добавяне на клас. Моля, опитайте отново.");
+    } finally { setBusy(btn, false); }
+}
+
+async function deleteClass(id, btn) {
+    const cls = storage.getClasses().find(c => String(c.id) === String(id));
+    if (!cls) return;
+    if (!confirm(`Да бъде ли изтрит класът ${cls.name}?`)) return;
+    setBusy(btn, true, "Изтриване...");
+    try {
+        await storage.deleteClass(id);
+        renderViews();
+        showAdminStatus(`Класът ${cls.name} е изтрит.`, "success");
+    } catch (error) {
+        showError(error, "Неуспешно изтриване на клас.");
+        reloadData();
+    } finally { setBusy(btn, false); }
+}
+
+/*
+    ==========================================================
+    УЧИТЕЛИ (admin): премахване (Auth акаунт + консултации, атомарно на сървъра)
+    ==========================================================
+*/
+async function removeTeacher(id, btn) {
+    const teacher = storage.getTeachers().find(t => t.id === id);
+    if (!teacher || !currentUser || id === currentUser.id) return;
+    const count = storage.getAll().filter(r => r.teacherId === id).length;
+    if (!confirm(`Да бъде ли премахнат учителят „${teacher.name}“?\n\n` +
+                 `• Акаунтът му ще бъде изтрит и той вече няма да може да влиза.\n` +
+                 `• Ще бъдат изтрити и неговите консултации: ${count}.\n\n` +
+                 `Операцията е необратима.`)) return;
+    setBusy(btn, true, "Премахване...");
+    try {
+        const res = await storage.deleteTeacher(id);
+        renderTeachersAdmin();
+        renderViews();
+        showAdminStatus(`Учителят „${teacher.name}“ е премахнат. Изтрити консултации: ${res && res.consultations_deleted != null ? res.consultations_deleted : count}.`, "success");
+    } catch (error) {
+        showError(error, "Неуспешно премахване на учителя. Моля, опитайте отново.");
+        reloadData();
+    } finally { setBusy(btn, false); }
 }

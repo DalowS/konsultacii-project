@@ -14,7 +14,7 @@
     <div class="header-inner">
         <div>
             <h1>График за консултации</h1>
-            <small>Версия 2.0 </small>
+            <small>Версия 2.0 • Споделена база данни (Supabase)</small>
         </div>
         <div id="headerUser"></div>
     </div>
@@ -56,6 +56,8 @@
     <!-- TEACHER APP -->
     <section id="teacherScreen" class="hidden">
 
+        <div class="stage-tabs" data-stage-tabs style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+
         <div class="card">
             <div class="teacher-info">
                 <strong>Учител:</strong>
@@ -81,12 +83,6 @@
                     </select>
                 </div>
 
-                <div>
-                    <label>Текущ график</label>
-                    <div class="toolbar-actions">
-                        <button class="btn-primary" onclick="renderSchedule()">Обнови</button>
-                    </div>
-                </div>
 
                 <div id="adminToolbarBlock" class="hidden">
                     <label>Администрация</label>
@@ -115,6 +111,8 @@
     <!-- ADMIN PANEL -->
     <section id="adminScreen" class="hidden admin-panel">
 
+        <div class="stage-tabs" data-stage-tabs style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+
         <div class="card">
             <div class="teacher-info">
                 <div>
@@ -128,13 +126,12 @@
         <div class="card">
             <div id="adminStatus" class="status"></div>
 
-            <h3>Обобщение</h3>
+            <h3>Обобщение – <span id="adminStageLabel"></span></h3>
             <div id="adminStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;"></div>
 
             <div class="toolbar-actions">
                 <button class="btn-success" onclick="exportCSV()">Експорт към Excel</button><button class="btn-primary" onclick="printScheduleReport()">График за печат</button>
                 <button class="btn-warning" onclick="clearAllData()">Изчисти всички записи</button>
-                <button class="btn-primary" onclick="refreshAdmin()">Обнови</button>
                  <button class="btn-secondary" onclick="backupData()">Резервно копие</button>
                  <button class="btn-secondary" onclick="importLocalData()">Импорт на локални данни</button>
                  <button class="btn-secondary" onclick="document.getElementById('restoreFile').click()">Възстанови</button>
@@ -159,13 +156,30 @@
         </div>
 
 <div class="card">
+            <h3>Класове</h3>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+                <div class="form-group" style="margin:0;">
+                    <label for="newClassGrade">Клас (номер)</label>
+                    <input id="newClassGrade" type="number" min="1" max="12" step="1" placeholder="напр. 5" style="max-width:120px;">
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label for="newClassLetter">Паралелка</label>
+                    <input id="newClassLetter" type="text" maxlength="1" list="classLetters" placeholder="А" style="max-width:90px;">
+                    <datalist id="classLetters"><option value="А"><option value="Б"><option value="В"><option value="Г"><option value="Д"><option value="Е"></datalist>
+                </div>
+                <button class="btn-primary" onclick="addClass(event)">Добави клас</button>
+            </div>
+            <div class="schedule-wrapper"><table id="classesAdmin"></table></div>
+        </div>
+
+        <div class="card">
             <h3>Потребители</h3>
             <div class="schedule-wrapper"><table id="teachersAdmin"></table></div>
             <p style="font-size:12px;color:#64748b;margin-bottom:0;">Нови потребители се регистрират сами от екрана за вход; тук се сменят име и роля.</p>
         </div>
 
         <div class="card">
-            <h3>Всички консултации</h3>
+            <h3>Консултации – <span id="adminTableStage"></span></h3>
 
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:15px;">
                 <div class="form-group" style="margin:0;">

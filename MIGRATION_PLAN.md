@@ -39,3 +39,8 @@
 1 Анализ ✔ · 2 Supabase подготовка ✔ · 3 Auth ✔ · 4 Storage ✔ · 5 Нормализация ✔ · 6 Сървърни конфликти ✔ · 7 Realtime ✔ · 8 Импорт ✔ · 9 Тестове: автоматични ✔, ръчни – `TESTING.md` · 10 Deploy: `README.md`
 
 > Част от кода (SQL, Supabase заявки, realtime) **не е изпълняван срещу реалния проект** – вж. `TESTING.md`.
+
+## v2.1 → v2.2 (промени)
+- v2.1: `slot_of(shift,hour)`; уникален индекс `(teacher_id, day, slot_of(shift,hour))`; заключване на слота по `day*100+slot`; `hour` 1..7; RPC за класове, учители; Realtime за `classes`, `teachers`.
+- v2.2 (`20261007000000_separate_shift_cells.sql`): премахнато канонизирането (II/1 → I/7) – I/7 и II/1 са две отделни клетки; `slot_of` остава само за проверка на реален конфликт; нови класове само 5–12.
+- Етапите (гимназиален 8–12, прогимназиален 5–7) са само филтър в `logic.js` (`stageOfClass`, `scopeRecords`); няма промяна в базата, storage, RLS, Realtime.

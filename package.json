@@ -1,2 +1,2 @@
 { "name": "grafik-konsultacii", "version": "2.0.0", "private": true,
-  "scripts": { "test": "node --test tests/logic.test.js" } }
+  "scripts": { "test": "node --test tests/logic.test.js tests/ui-smoke.test.js" } }

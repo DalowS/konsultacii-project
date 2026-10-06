@@ -1,0 +1,8 @@
+.env
+.env.*
+*.local
+node_modules/
+.DS_Store
+# Никога не комитвайте service_role / secret ключове или backup файлове с данни
+*service_role*
+grafik-konsultacii-*.json
