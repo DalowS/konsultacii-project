@@ -143,18 +143,6 @@ test("storage: класове и учители", async () => {
 
 /* ===================== v2.2: отделни клетки + етапи ===================== */
 
-test("12:35 - 13:15 са две отделни позиции със същия интервал", () => {
-    assert.equal(L.positionLabel(1, 7), "12:35 - 13:15");
-    assert.equal(L.positionLabel(2, 1), "12:35 - 13:15");
-    // физическият слот е общ (ползва се само при проверка за конфликт на сървъра)...
-    assert.equal(L.slotOf(1, 7), L.slotOf(2, 1));
-    // ...но позициите (shift,hour) са различни и няма функции за канонизиране/сливане
-    for (const name of ["canonicalPosition", "isSharedPosition", "sameSlot", "recordInShift", "SHARED_SLOT"]) {
-        assert.equal(L[name], undefined, name);
-    }
-    assert.equal(L.shiftText(1), "I");
-    assert.equal(L.shiftText(2), "II");
-});
 
 test("статистика: I/7 и II/1 са две отделни клетки", () => {
     const recs = [
@@ -229,11 +217,177 @@ test("статични проверки на frontend-а", () => {
     assert.equal((read("js/storage.js").match(/const storage = /g) || []).length, 1);
 });
 
-test("SQL v2.2: без канонизиране, конфликтите остават по slot_of", () => {
-    const sql = fs.readFileSync(__dirname + "/../supabase/migrations/20261007000000_separate_shift_cells.sql", "utf8");
-    const code = sql.replace(/--[^\n]*/g, "");
-    assert.ok(!/p_shift\s*:=|p_hour\s*:=/.test(code), "няма канонизиране");
-    assert.ok(/slot_of\(c\.shift, c\.hour\) = v_slot/.test(code), "конфликт на учител по слот");
-    assert.ok(/slot_of\(o\.shift, o\.hour\) = v_slot/.test(code), "конфликт на клас по слот");
-    assert.ok(/between 5 and 12/.test(code));
+
+/* ===================== v2.3: независими смени, печат ===================== */
+
+test("12:35 - 13:15 е само етикет: две независими позиции, без концепция за физически слот", () => {
+    assert.equal(L.positionLabel(1, 7), "12:35 - 13:15");
+    assert.equal(L.positionLabel(2, 1), "12:35 - 13:15");
+    for (const name of ["slotOf", "slotLabel", "canonicalPosition", "isSharedPosition", "sameSlot", "recordInShift", "SHARED_SLOT"]) {
+        assert.equal(L[name], undefined, `${name} не трябва да съществува`);
+    }
+    assert.ok(!/slotOf|slotLabel/.test(fs.readFileSync(__dirname + "/../js/logic.js", "utf8")));
+});
+
+test("4: всички часови интервали са непроменени (I и II смяна)", () => {
+    const shift1 = ["7:30 - 8:10", "8:20 - 9:00", "9:10 - 9:50", "10:10 - 10:50", "11:00 - 11:40", "11:50 - 12:30", "12:35 - 13:15"];
+    const shift2 = ["12:35 - 13:15", "13:30 - 14:10", "14:20 - 15:00", "15:10 - 15:50", "16:10 - 16:50", "17:00 - 17:40", "17:50 - 18:30"];
+    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(1, h)), shift1);
+    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(2, h)), shift2);
+    assert.equal(L.TIME_SLOTS.length, 13);
+});
+
+test("1-3 (SQL, статична проверка): слотът е (ден, смяна, час) навсякъде", () => {
+    const dir = __dirname + "/../supabase/migrations/";
+    const code = fs.readFileSync(dir + "20261008000000_independent_shifts.sql", "utf8").replace(/--[^\n]*/g, "");
+    // няма физически слот в нито една проверка
+    const noDrop = code.replace(/drop function if exists public\.slot_of\(int, int\);/, "");
+    assert.ok(!/slot_of|v_slot|physical/i.test(noDrop), "няма slot_of/v_slot");
+    assert.ok(/drop function if exists public\.slot_of/.test(code), "slot_of се премахва");
+    // уникален индекс: учител + ден + смяна + час
+    assert.ok(/create unique index consultations_teacher_slot_uq\s+on public\.consultations \(teacher_id, day, shift, hour\)/.test(code));
+    // заетост на учител: същата клетка
+    assert.ok(/c\.teacher_id = p_teacher and c\.day = p_day\s+and c\.shift = p_shift and c\.hour = p_hour/.test(code));
+    // клас/паралелни групи: същата клетка
+    assert.ok(/o\.day = p_day and o\.shift = p_shift and o\.hour = p_hour/.test(code));
+    // заключване на клетката
+    assert.ok(/p_day \* 100 \+ p_shift \* 10 \+ p_hour/.test(code));
+    // импорт: дубликат по ден+смяна+час
+    assert.ok(/c\.shift = v_shift and c\.hour = v_hour/.test(code));
+    // нормалните конфликти в рамките на една клетка са запазени (3)
+    for (const msg of ["Учителят вече има друга консултация", "вече има консултация в този час", "вече има две групи"]) {
+        assert.ok(code.includes(msg), msg);
+    }
+    // няма канонизиране (II/1 -> I/7)
+    assert.ok(!/p_shift\s*:=|p_hour\s*:=/.test(code));
+    // часовете 1..7 са валидни
+    assert.ok(/p_hour not between 1 and 7/.test(code));
+});
+
+test("никоя миграция след v2.3 не връща физическия слот; последната дефиниция на _save_consultation е v2.3", () => {
+    const dir = __dirname + "/../supabase/migrations/";
+    const files = fs.readdirSync(dir).sort();
+    assert.equal(files[files.length - 1], "20261008000000_independent_shifts.sql");
+});
+
+/* ===================== v2.4: свързани смени, конфликти при попълване ===================== */
+
+test("getOppositeShift: I <-> II", () => {
+    assert.equal(L.getOppositeShift(1), 2);
+    assert.equal(L.getOppositeShift(2), 1);
+    assert.equal(L.getOppositeShift("1"), 2);
+    assert.equal(L.getOppositeShift(L.getOppositeShift(1)), 1);
+});
+
+const rec = (id, teacherId, day, shift, hour, subject, classes, location = "", teacher = "Иван Иванов") =>
+    ({ id: String(id), teacherId, teacher, day, shift, hour, subject, location, classes });
+const base = { day: "Понеделник", shift: 1, hour: 4, subject: "История", location: "", teacherId: "t2", groupSubjects: [] };
+
+test("13/14: 10А, 10Б свободни, 10В конфликт – записват се свободните", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 4, "Математика", ["10В"])];
+    const ev = L.evaluateSelection(records, { ...base, classes: ["10А", "10Б", "10В"] });
+    assert.deepEqual(ev.free, ["10А", "10Б"]);
+    assert.deepEqual(ev.blocked, ["10В"]);
+    assert.equal(ev.canSave, true);
+    const msgs = L.summarizeSelection(ev);
+    assert.equal(msgs[0].level, "warn");
+    assert.match(msgs[0].text, /1 избран клас има конфликт\. Можете да продължите с останалите свободни класове\./);
+});
+
+test("15: конфликтът е конкретен (предмет, ден, смяна, час, учител)", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 4, "Математика", ["10В"])];
+    const ev = L.evaluateSelection(records, { ...base, classes: ["10В"] });
+    const d = L.describeClassConflict("10В", ev.conflicts["10В"]);
+    assert.equal(d.title, "⚠️ 10В вече има консултация.");
+    assert.deepEqual(d.details, [["Предмет", "Математика"], ["Ден", "Понеделник"], ["Смяна", "I"],
+                                 ["Час", "10:10 - 10:50"], ["Учител", "Иван Иванов"]]);
+});
+
+test("20/21: два конфликтни класа (мн.ч.) и всички класове в конфликт блокират записа", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 4, "Математика", ["10В", "11Б"])];
+    let ev = L.evaluateSelection(records, { ...base, classes: ["10А", "10В", "11Б"] });
+    assert.match(L.summarizeSelection(ev)[0].text, /2 избрани класа имат конфликт\. Можете да продължите/);
+    assert.equal(ev.canSave, true);
+    ev = L.evaluateSelection(records, { ...base, classes: ["10В", "11Б"] });
+    assert.equal(ev.canSave, false);
+    assert.equal(ev.allBlocked, true);
+    assert.match(L.summarizeSelection(ev)[0].text, /Всички избрани класове имат конфликт в този час\. Изберете друг час или премахнете конфликтните класове\./);
+    ev = L.evaluateSelection(records, { ...base, classes: [] });
+    assert.equal(ev.canSave, false);
+    assert.match(L.summarizeSelection(ev)[0].text, /Изберете поне един клас/);
+});
+
+test("16: проверката се променя с часа, дните и предмета; свободен час = без предупреждение", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 4, "Математика", ["10В"])];
+    const at = over => L.evaluateSelection(records, { ...base, classes: ["10В"], ...over });
+    assert.equal(at({}).canSave, false);                                    // зает
+    assert.equal(at({ hour: 5 }).canSave, true);                            // друг час
+    assert.equal(at({ day: "Вторник" }).canSave, true);                     // друг ден
+    assert.equal(at({ shift: 2 }).canSave, true);                           // друга смяна
+    assert.equal(L.summarizeSelection(at({ hour: 5 }))[0].text, "✓ Няма конфликти.");
+});
+
+test("18: слот = ден + смяна + час; F: I/12:35 не блокира II/12:35 (клас и учител)", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"])];     // гимназия, I смяна, 12:35
+    // прогимназия II смяна, 12:35 (друг клас)
+    assert.equal(L.evaluateSelection(records, { ...base, shift: 2, hour: 1, classes: ["5А"] }).canSave, true);
+    // същият клас в другата смяна
+    assert.equal(L.evaluateSelection(records, { ...base, shift: 2, hour: 1, classes: ["8А"] }).canSave, true);
+    // същият учител, същият предмет, същите класове, другата смяна – разрешено
+    const same = L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Математика", shift: 2, hour: 1, classes: ["8А"] });
+    assert.equal(same.teacherConflict, null);
+    assert.equal(same.canSave, true);
+    // но в същата клетка (I/7) – конфликт и на клас, и на учител
+    const sameCell = L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Физика", shift: 1, hour: 7, classes: ["8А"] });
+    assert.ok(sameCell.teacherConflict);
+    assert.equal(sameCell.canSave, false);
+    // и обратно: II/1 не блокира I/7
+    const rev = [rec(2, "t1", "Понеделник", 2, 1, "Математика", ["8А"])];
+    assert.equal(L.evaluateSelection(rev, { ...base, teacherId: "t1", shift: 1, hour: 7, classes: ["8А"] }).canSave, true);
+});
+
+test("19: паралелни групи – само в рамките на клетката", () => {
+    const groups = ["ИТ"];
+    const g = (id, shift, hour, loc) => rec(id, "t" + id, "Вторник", shift, hour, "ИТ", ["9А"], loc);
+    const p = { day: "Вторник", shift: 1, hour: 3, subject: "ИТ", location: "К2", teacherId: "t9", groupSubjects: groups, classes: ["9А"] };
+    // една група с различно място – позволено
+    assert.equal(L.evaluateSelection([g(1, 1, 3, "К1")], p).canSave, true);
+    // същото място – конфликт
+    const loc = L.evaluateSelection([g(1, 1, 3, "К2")], p);
+    assert.equal(loc.canSave, false);
+    assert.equal(loc.conflicts["9А"].type, "same_location");
+    // две групи вече – пълно
+    assert.equal(L.evaluateSelection([g(1, 1, 3, "К1"), g(2, 1, 3, "К3")], p).conflicts["9А"].type, "groups_full");
+    // група в друга смяна/час не влияе
+    assert.equal(L.evaluateSelection([g(1, 2, 1, "К2"), g(2, 2, 1, "К3")], p).canSave, true);
+    // различен предмет в клетката – зает
+    assert.equal(L.evaluateSelection([rec(5, "t5", "Вторник", 1, 3, "Физика", ["9А"], "К1")], p).conflicts["9А"].type, "occupied");
+    // групов предмет изисква място
+    const noLoc = L.evaluateSelection([], { ...p, location: "" });
+    assert.equal(noLoc.needsLocation, true);
+    assert.equal(noLoc.canSave, false);
+});
+
+test("редакция: собственият запис не е конфликт; маркери по класове", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 4, "Математика", ["10В"])];
+    assert.equal(L.evaluateSelection(records, { ...base, teacherId: "t1", excludeId: "1", classes: ["10В"] }).canSave, true);
+    const m = L.classMarkers(records, { ...base, classes: ["10А"] }, ["10А", "10Б", "10В"]);
+    assert.deepEqual(m, { "10А": "✓", "10Б": "", "10В": "⚠ Има конфликт" });
+});
+
+test("етапи на консултация и подредба по време", () => {
+    assert.equal(L.stageNamesOfRecord({ classes: ["5А", "5Б"] }), "Прогимназиален");
+    assert.equal(L.stageNamesOfRecord({ classes: ["8А"] }), "Гимназиален");
+    assert.equal(L.stageNamesOfRecord({ classes: ["8А", "7А"] }), "Прогимназиален / Гимназиален");
+    const sorted = [rec(1, "t", "Вторник", 1, 1, "Б", []), rec(2, "t", "Понеделник", 2, 1, "А", []),
+                    rec(3, "t", "Понеделник", 1, 7, "А", []), rec(4, "t", "Понеделник", 1, 2, "А", [])].sort(L.compareRecordsByTime);
+    assert.deepEqual(sorted.map(r => r.id), ["4", "3", "2", "1"]);
+});
+
+test("v2.4: сървърната валидация не е променена (няма нова миграция) и UX проверката е само огледало", () => {
+    const dir = __dirname + "/../supabase/migrations/";
+    assert.equal(fs.readdirSync(dir).sort().pop(), "20261008000000_independent_shifts.sql");
+    const app = fs.readFileSync(__dirname + "/../js/app.js", "utf8");
+    assert.ok(/storage\.(add|update)\(/.test(app));                 // записът продължава през RPC
+    assert.ok(/evaluateSelection\(storage\.getAll\(\), ctx\.params\)/.test(app));
 });

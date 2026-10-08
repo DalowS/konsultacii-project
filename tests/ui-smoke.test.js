@@ -18,10 +18,13 @@ function setup() {
     };
     const document = {
         getElementById: id => (elements[id] ||= mk()), querySelector: () => mk(),
-        querySelectorAll: sel => sel === "[data-stage-tabs]" ? [(elements.__tabs ||= mk())] : [],
-        createElement: () => mk(), addEventListener() {}, body: mk(), activeElement: null, hidden: false
+        querySelectorAll: sel => sel === "[data-stage-tabs]" ? [(elements.__tabs ||= mk())]
+            : sel === ".extraClass:checked" ? (elements.__checked || [])
+            : sel === ".class-state" ? (elements.__states || []) : [],
+        createElement: () => mk(), addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
+        body: mk(), activeElement: null, hidden: false
     };
-    const downloads = [], alerts = [], printed = [];
+    const downloads = [], alerts = [], printed = [], listeners = {};
     class Blob { constructor(parts) { this.text = parts.join(""); } }
     const ctx = { document, console, Blob, setTimeout, clearTimeout, setInterval, clearInterval,
         URL: { createObjectURL: b => { downloads.push(b.text); return "blob:x"; }, revokeObjectURL() {} },
@@ -49,7 +52,7 @@ function setup() {
             mkRec("5","u-t","Учител","Петък",1,2,["5А"],"Англ"),               // прогимназия
             mkRec("6","u-t","Учител","Петък",2,3,["7А","8А"],"Смесена")        // и двата етапа
         ];`, ctx);
-    return { ctx, elements, downloads, alerts, printed, run: code => vm.runInContext(code, ctx) };
+    return { ctx, elements, downloads, alerts, printed, listeners, run: code => vm.runInContext(code, ctx) };
 }
 
 function setSchedule(t, cls, shift) {
@@ -212,15 +215,6 @@ test("админ: филтърът по клас е ограничен до ет
     assert.deepEqual(values(t.elements.adminClassFilter), ["5А", "7А"]);
 });
 
-test("„Моите консултации“ уважава етапа", () => {
-    const t = setup();
-    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; showMyConsultations();`);
-    let h = t.elements.myConsultationsList.innerHTML;
-    assert.match(h, /Гимназиален етап/); assert.match(h, /Математика/); assert.doesNotMatch(h, /Англ/);
-    t.run(`setStage("progymnasium"); showMyConsultations();`);
-    h = t.elements.myConsultationsList.innerHTML;
-    assert.match(h, /Англ/); assert.doesNotMatch(h, /Математика/);
-});
 
 test("редакция на смесена консултация: извънетапните класове се запазват", () => {
     const t = setup();
@@ -229,6 +223,7 @@ test("редакция на смесена консултация: извъне�
     t.run(`setStage("gymnasium"); editConsultation("6");`);          // 7А + 8А, в гимназията се вижда 8А
     assert.equal(t.elements.modalClass.value, "8А");
     t.run(`document.getElementById("modalSubject").value="Смесена"; document.getElementById("modalId").value="6";`);
+    t.elements.__checked = [{ value: "8А" }];                         // в гимназията е отметнат само 8А
     return t.run("saveConsultation()").then(() => {
         const saved = t.run("__saved");
         assert.deepEqual([...saved.rec.classes].sort(), ["7А", "8А"]);
@@ -258,4 +253,291 @@ test("addClass: клиентска валидация (5-12)", async () => {
     t.run(`document.getElementById("newClassGrade").value="8"; document.getElementById("newClassLetter").value="a";`);
     await t.run("addClass({currentTarget:null})");           // латинско a -> 8А, вече съществува
     assert.match(t.alerts[2], /вече съществува/);
+});
+
+test("1/2: едни и същи консултации в I/7 и II/1 (учител, предмет, класове, място) са независими", () => {
+    const t = setup();
+    t.run(`storage._cache = [
+        {id:"10",teacherId:"u-t",teacher:"Сабринко Далов",day:"Понеделник",shift:1,hour:7,subject:"Математика",location:"12",classes:["8А","8Б"],className:"8А"},
+        {id:"11",teacherId:"u-t",teacher:"Сабринко Далов",day:"Понеделник",shift:2,hour:1,subject:"Математика",location:"12",classes:["8А","8Б"],className:"8А"}
+    ];`);
+    const s1 = rows(setSchedule(t, "8А", 1));
+    const s2 = rows(setSchedule(t, "8А", 2));
+    assert.match(s1[6], /Математика/);                         // I смяна, час 7
+    assert.match(s2[0], /Математика/);                         // II смяна, час 1
+    assert.equal((s1.join("").match(/Математика/g) || []).length, 1);   // във всяка смяна – точно една
+    assert.equal((s2.join("").match(/Математика/g) || []).length, 1);
+    // всяка клетка се редактира със собствен идентификатор (не са един запис)
+    assert.ok(s1[6].includes("editConsultation('10')") && s2[0].includes("editConsultation('11')") ||
+              (/Математика/.test(s1[6]) && /Математика/.test(s2[0])));
+    t.run(`currentUser = {id:"u-t", name:"Сабринко Далов", role:"teacher"}; isAdmin = false;`);
+    assert.equal(t.run("getCellRecords('8А', 1, 'Понеделник', 7).length"), 1);
+    assert.equal(t.run("getCellRecords('8А', 2, 'Понеделник', 1).length"), 1);
+    assert.equal(t.run("getCellRecords('8А', 1, 'Понеделник', 7)[0].id"), "10");
+    assert.equal(t.run("getCellRecords('8А', 2, 'Понеделник', 1)[0].id"), "11");
+});
+
+test("клиентът не блокира II/1, когато I/7 е заета (формата се отваря без предупреждение)", () => {
+    const t = setup();
+    // 8А, Понеделник, I смяна/7 е заета (запис 1)
+    const before = t.alerts.length;
+    t.run(`openAddModal("8А", 2, "Понеделник", 1)`);
+    assert.equal(t.alerts.length, before, "без alert за заетост");
+    assert.deepEqual(JSON.parse(JSON.stringify(t.run("modalSlot"))), { shift: 2, hour: 1 });
+    assert.equal(t.elements.modalHour.value, "12:35 - 13:15");
+});
+
+test("печат: заглавието е центрирано спрямо страницата и таблицата (общ контейнер, една ширина)", () => {
+    const t = setup();
+    t.run("printScheduleReport()");
+    const html = t.printed[0];
+    assert.match(html, /<div class="sheet"><h2>График за консултации – Гимназиален етап<\/h2><table>/);
+    assert.match(html, /\.sheet h2 \{ text-align: center;/);
+    assert.match(html, /\.sheet table \{ width: 100%; border-collapse: collapse;/);
+    assert.match(html, /\.sheet \{ width: 100%; margin: 0 auto; \}/);
+    assert.match(html, /<\/table><\/div><\/body>/);
+    // съдържанието на таблицата е същото: същите колони и редове
+    assert.match(html, /<th>Учител<\/th><th>Предмет<\/th><th>Класове<\/th><th>Ден<\/th><th>Смяна<\/th><th>Час<\/th><th>Място<\/th>/);
+    assert.equal((html.match(/<tr><td>/g) || []).length, 5);          // 5 консултации в гимназията
+    t.run(`setStage("progymnasium"); printScheduleReport()`);
+    assert.match(t.printed[1], /<div class="sheet"><h2>График за консултации – Прогимназиален етап<\/h2><table>/);
+    assert.match(t.printed[1], /\.sheet h2 \{ text-align: center;/);
+});
+
+/* ===================== v2.4 ===================== */
+const flip = (t, stage, shift) => {
+    t.run(`currentStage = "${stage}"; document.getElementById("shiftSelect").value = "${shift}";`);
+};
+const shiftNow = t => t.elements.shiftSelect.value;
+
+test("A: Гимназиален I смяна -> Прогимназиален = II смяна", () => {
+    const t = setup(); flip(t, "gymnasium", 1);
+    t.run(`setStage("progymnasium")`);
+    assert.equal(t.run("currentStage"), "progymnasium");
+    assert.equal(shiftNow(t), "2");
+    assert.match(t.elements.viewIndicator.innerHTML, /Прогимназиален етап · II смяна/);
+    assert.match(t.elements.viewIndicator.innerHTML, /Смяната е сменена автоматично: I → II смяна/);
+});
+test("B: Гимназиален II смяна -> Прогимназиален = I смяна", () => {
+    const t = setup(); flip(t, "gymnasium", 2);
+    t.run(`setStage("progymnasium")`);
+    assert.equal(shiftNow(t), "1");
+    assert.match(t.elements.viewIndicator.innerHTML, /Прогимназиален етап · I смяна/);
+});
+test("C: Прогимназиален I смяна -> Гимназиален = II смяна", () => {
+    const t = setup(); flip(t, "progymnasium", 1);
+    t.run(`setStage("gymnasium")`);
+    assert.equal(shiftNow(t), "2");
+    assert.match(t.elements.viewIndicator.innerHTML, /Гимназиален етап · II смяна/);
+});
+test("D: Прогимназиален II смяна -> Гимназиален = I смяна", () => {
+    const t = setup(); flip(t, "progymnasium", 2);
+    t.run(`setStage("gymnasium")`);
+    assert.equal(shiftNow(t), "1");
+});
+test("двойно превключване връща началната смяна; същият етап не обръща", () => {
+    const t = setup(); flip(t, "gymnasium", 1);
+    t.run(`setStage("gymnasium")`);                                  // същият етап – без промяна
+    assert.equal(shiftNow(t), "1");
+    t.run(`setStage("progymnasium"); setStage("gymnasium")`);
+    assert.equal(shiftNow(t), "1");
+});
+test("графикът след превключване показва новата смяна (II) – 12:35 е първи ред", () => {
+    const t = setup(); flip(t, "gymnasium", 1);
+    t.run(`document.getElementById("classSelect").value = "5А"; setStage("progymnasium")`);
+    t.run(`document.getElementById("classSelect").value = "5А"; renderSchedule()`);
+    assert.match(t.elements.scheduleTitle.textContent, /5А • II смяна/);
+    assert.match(rows(t.elements.scheduleTable.innerHTML)[0], /12:35 - 13:15/);
+});
+
+test("E: смяната НЕ се променя при смяна на клас, час (модал), филтри, презареждане", () => {
+    const t = setup(); flip(t, "gymnasium", 2);
+    t.run(`document.getElementById("classSelect").value = "8Б"; renderSchedule()`);
+    assert.equal(shiftNow(t), "2");
+    t.run(`openAddModal("8А", 2, "Петък", 5); closeModal();`);
+    assert.equal(shiftNow(t), "2");
+    t.run(`document.getElementById("adminClassFilter").value = "8А"; renderAdminTable(); populateAdminFilters(); populateClasses(); renderViews();`);
+    assert.equal(shiftNow(t), "2");
+});
+
+test("индикаторът е в основния екран и има role=status", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    assert.match(html, /id="viewIndicator"[^>]*role="status"[^>]*aria-live="polite"/);
+});
+
+/* ---------- конфликти при попълване във формата ---------- */
+function openForm(t, cls, shift, day, hour) {
+    t.run(`openAddModal("${cls}", ${shift}, "${day}", ${hour})`);
+}
+
+test("13/14 (UI): 8А заето в I/7 – при избор на 8А,8Б се показва конкретен конфликт, записът остава възможен", async () => {
+    const t = setup();
+    t.run(`storage.add = async rec => { globalThis.__added = rec; };`);
+    openForm(t, "8Б", 1, "Понеделник", 7);                          // 8А е заето от „Математика“ (запис 1)
+    t.run(`document.getElementById("modalSubject").value = "История"; document.getElementById("modalLocation").value = "";`);
+    t.elements.__checked = [{ value: "8А" }, { value: "8Б" }];
+    t.run("refreshConflictUI()");
+    const box = t.elements.conflictBox.innerHTML;
+    assert.match(box, /8А вече има консултация\./);
+    assert.match(box, /Предмет: <strong>Математика<\/strong>/);
+    assert.match(box, /Ден: <strong>Понеделник<\/strong>/);
+    assert.match(box, /Смяна: <strong>I<\/strong>/);
+    assert.match(box, /Час: <strong>12:35 - 13:15<\/strong>/);
+    assert.match(box, /Учител: <strong>Учител<\/strong>/);
+    assert.match(t.elements.conflictSummary.innerHTML, /1 избран клас има конфликт\. Можете да продължите/);
+    assert.match(t.elements.conflictSummary.className, /warn/);
+    assert.equal(t.elements.modalSaveBtn.disabled, false);
+    await t.run("saveConsultation()");
+    const added = t.run("__added");
+    assert.deepEqual([...added.classes], ["8Б"]);                   // само свободният клас
+    assert.equal(added.shift, 1); assert.equal(added.hour, 7);
+    const statusText = Object.values(t.elements).map(e => e.textContent || "").join(" ");
+    assert.match(statusText, /Не е записана за \(конфликт\): 8А/);
+});
+
+test("21 (UI): всички избрани класове в конфликт – записът е блокиран и обяснен", async () => {
+    const t = setup();
+    t.run(`storage.add = async rec => { globalThis.__added = rec; };`);
+    openForm(t, "8Б", 1, "Понеделник", 7);
+    t.run(`document.getElementById("modalSubject").value = "История";`);
+    t.elements.__checked = [{ value: "8А" }];
+    t.run("refreshConflictUI()");
+    assert.equal(t.elements.modalSaveBtn.disabled, true);
+    assert.match(t.elements.conflictSummary.innerHTML, /Всички избрани класове имат конфликт в този час/);
+    assert.match(t.elements.conflictSummary.className, /error/);
+    await t.run("saveConsultation()");
+    assert.equal(t.run("typeof __added"), "undefined", "няма заявка към сървъра");
+    assert.match(t.alerts.at(-1), /Всички избрани класове имат конфликт/);
+});
+
+test("16 (UI): динамично – при свободен час предупреждението изчезва; Realtime обновява проверката", () => {
+    const t = setup();
+    openForm(t, "8Б", 1, "Понеделник", 7);
+    t.run(`document.getElementById("modalSubject").value = "История";`);
+    t.elements.__checked = [{ value: "8А" }, { value: "8Б" }];
+    t.run("refreshConflictUI()");
+    assert.match(t.elements.conflictBox.innerHTML, /8А вече има консултация/);
+    t.run("setModalSlot(1, 5); refreshConflictUI()");                // друг час
+    assert.equal(t.elements.conflictBox.innerHTML, "");
+    assert.match(t.elements.conflictSummary.innerHTML, /✓ Няма конфликти\./);
+    assert.equal(t.elements.modalSaveBtn.disabled, false);
+    // друг потребител заема 8Б в 1/5 (Realtime -> renderViews)
+    t.run(`storage._cache.push({id:"90",teacherId:"u-x",teacher:"Друг",day:"Понеделник",shift:1,hour:5,subject:"Химия",location:"",classes:["8Б"],className:"8Б"}); renderViews();`);
+    assert.match(t.elements.conflictBox.innerHTML, /8Б вече има консултация/);
+    assert.match(t.elements.conflictBox.innerHTML, /Учител: <strong>Друг<\/strong>/);
+});
+
+test("F (UI): I/12:35 не блокира II/12:35 – същият учител, предмет, клас", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false;`);
+    openForm(t, "8А", 2, "Понеделник", 1);                          // 8А е заето в I/7, не във II/1
+    t.run(`document.getElementById("modalSubject").value = "Математика";`);
+    t.elements.__checked = [{ value: "8А" }];
+    t.run("refreshConflictUI()");
+    assert.equal(t.elements.conflictBox.innerHTML, "");
+    assert.equal(t.elements.modalSaveBtn.disabled, false);
+    assert.match(t.elements.conflictSummary.innerHTML, /Няма конфликти/);
+});
+
+test("същият учител в същата клетка = блокиран запис с обяснение", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false;`);
+    openForm(t, "8Б", 1, "Понеделник", 7);                          // u-t вече има 8А в I/7
+    t.run(`document.getElementById("modalSubject").value = "Физика";`);
+    t.elements.__checked = [{ value: "8Б" }];
+    t.run("refreshConflictUI()");
+    assert.equal(t.elements.modalSaveBtn.disabled, true);
+    assert.match(t.elements.conflictBox.innerHTML, /Учителят вече има консултация в този час/);
+});
+
+test("етикетите до класовете са текст (✓ / ⚠), не само цвят", () => {
+    const t = setup();
+    openForm(t, "8Б", 1, "Понеделник", 7);
+    const spans = ["8А", "8Б"].map(c => ({ dataset: { class: c }, textContent: "", className: "" }));
+    t.elements.__states = spans;
+    t.elements.__checked = [{ value: "8Б" }];
+    t.run(`document.getElementById("modalSubject").value = "История"; refreshConflictUI()`);
+    assert.equal(spans[0].textContent, "⚠ Има конфликт");            // 8А (неизбран, но е в конфликт)
+    assert.match(spans[0].className, /bad/);
+    assert.equal(spans[1].textContent, "✓");
+    assert.match(spans[1].className, /good/);
+});
+
+/* ---------- „Моите консултации“ и печат ---------- */
+test("Моите консултации е глобален: двата етапа, сортиран, с колона Етап", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; showMyConsultations();`);
+    const gymList = t.elements.myConsultationsList.innerHTML;
+    for (const subj of ["Математика", "БЕЛ", "Физика", "Химия", "Англ", "Смесена"]) assert.ok(gymList.includes(subj), subj);
+    assert.match(gymList, /<th scope="col">Етап<\/th>/);
+    assert.match(gymList, /<td>Прогимназиален<\/td>/);
+    assert.match(gymList, /<td>Гимназиален<\/td>/);
+    assert.match(gymList, /<td>Прогимназиален \/ Гимназиален<\/td>/);
+    // същият изглед при другия етап
+    t.run(`setStage("progymnasium"); showMyConsultations();`);
+    assert.equal(t.elements.myConsultationsList.innerHTML, gymList);
+    // подредба: ден -> смяна -> час
+    const order = ["Математика", "БЕЛ", "Физика", "Химия", "Англ", "Смесена"].map(s => gymList.indexOf(s));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    assert.equal(t.elements.myPrintBtn.disabled, false);
+    assert.equal(t.elements.myConsultationsModal.style.display, "flex");
+});
+
+test("Моите консултации: само собствените; без консултации – печатът е изключен", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-nobody", name:"Друг", role:"teacher"}; showMyConsultations();`);
+    assert.match(t.elements.myConsultationsList.innerHTML, /Нямате консултации/);
+    assert.equal(t.elements.myPrintBtn.disabled, true);
+});
+
+test("печат от „Моите консултации“: всички консултации, двата етапа, центрирано заглавие", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; setStage("progymnasium"); printMyConsultations();`);
+    const html = t.printed[0];
+    assert.match(html, /<div class="sheet"><h2>Моите консултации – Учител<\/h2><table>/);
+    assert.match(html, /\.sheet h2 \{ text-align: center;/);
+    assert.match(html, /<th>Етап<\/th><th>Ден<\/th><th>Смяна<\/th><th>Час<\/th><th>Предмет<\/th><th>Класове<\/th><th>Място<\/th>/);
+    assert.equal((html.match(/<tr><td>/g) || []).length, 6);         // и 5-7, и 8-12
+    for (const subj of ["Математика", "Англ", "Химия", "Смесена"]) assert.ok(html.includes(subj), subj);
+    const order = ["Математика", "БЕЛ", "Физика", "Химия", "Англ", "Смесена"].map(s => html.indexOf(s));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+});
+
+test("10/22/27: няма „Печат“ в основния график; печатът е в „Моите консултации“", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    const teacher = html.slice(html.indexOf('<section id="teacherScreen"'), html.indexOf('<section id="adminScreen"'));
+    assert.ok(!/Печат|print|CSV|Excel/i.test(teacher), "основният график няма печат/CSV");
+    const my = html.slice(html.indexOf('id="myConsultationsModal"'), html.indexOf('<!-- ADD / EDIT MODAL -->'));
+    assert.match(my, /id="myPrintBtn"[^>]*onclick="printMyConsultations\(\)"[^>]*>🖨 Печат</);
+    assert.ok(!/Печат/.test(html.slice(0, html.indexOf('<section id="adminScreen"'))
+        .replace(/<div id="myConsultationsModal"[\s\S]*$/, "")), "извън „Моите консултации“ няма Печат преди админ панела");
+});
+
+/* ---------- достъпност ---------- */
+test("Escape затваря прозорците; фокусът се връща", () => {
+    const t = setup();
+    const press = key => (t.listeners.keydown || []).forEach(fn => fn({ key }));
+    t.run(`openAddModal("8Б", 1, "Петък", 3)`);
+    assert.equal(t.elements.modalOverlay.style.display, "flex");
+    press("Enter");
+    assert.equal(t.elements.modalOverlay.style.display, "flex");
+    press("Escape");
+    assert.equal(t.elements.modalOverlay.style.display, "none");
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; showMyConsultations();`);
+    press("Escape");
+    assert.equal(t.elements.myConsultationsModal.style.display, "none");
+});
+
+test("достъпност (статично): роли, labels, focus-visible, disabled, live региони", () => {
+    const read = f => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+    const html = read("index.html"), css = read("css/style.css");
+    assert.equal((html.match(/role="dialog" aria-modal="true"/g) || []).length, 2);
+    for (const id of ["modalClass", "modalShift", "modalDay", "modalHour", "modalSubject", "modalLocation"]) {
+        assert.ok(html.includes(`<label for="${id}">`), `label for ${id}`);
+    }
+    assert.match(html, /id="conflictSummary"[^>]*aria-live="polite"/);
+    assert.match(html, /id="conflictBox"[^>]*aria-live="polite"/);
+    assert.match(css, /:focus-visible/);
+    assert.match(css, /button:disabled/);
+    assert.match(css, /\.sr-only/);
 });

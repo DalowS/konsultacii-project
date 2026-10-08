@@ -56,7 +56,8 @@
     <!-- TEACHER APP -->
     <section id="teacherScreen" class="hidden">
 
-        <div class="stage-tabs" data-stage-tabs style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+        <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+        <div id="viewIndicator" class="view-indicator" role="status" aria-live="polite"></div>
 
         <div class="card">
             <div class="teacher-info">
@@ -215,53 +216,56 @@
     <div class="footer-note">
         Данните се съхраняват в споделена база данни (Supabase).
     </div>
-<div id="myConsultationsModal" class="modal-overlay"><div class="modal"><h3>Моите консултации</h3><div id="myConsultationsList"></div><div class="modal-actions"><button class="btn-secondary" onclick="document.getElementById('myConsultationsModal').style.display='none'">Затвори</button></div></div></div></main>
+<div id="myConsultationsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="myConsultationsTitle"><div class="modal modal-wide"><h3 id="myConsultationsTitle">Моите консултации</h3><div id="myConsultationsList"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeMyConsultations()">Затвори</button><button id="myPrintBtn" class="btn-primary" onclick="printMyConsultations()">🖨 Печат</button></div></div></div>
 
 <!-- ADD / EDIT MODAL -->
-<div id="modalOverlay" class="modal-overlay">
+<div id="modalOverlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal">
         <h3 id="modalTitle">Добавяне на консултация</h3>
 
         <div class="form-group">
-            <label>Клас</label>
+            <label for="modalClass">Клас</label>
             <input id="modalClass" type="text" readonly>
         </div>
 
         <div class="form-group">
-            <label>Смяна</label>
+            <label for="modalShift">Смяна</label>
             <input id="modalShift" type="text" readonly>
         </div>
 
         <div class="form-group">
-            <label>Ден</label>
+            <label for="modalDay">Ден</label>
             <input id="modalDay" type="text" readonly>
         </div>
 
         <div class="form-group">
-            <label>Час</label>
+            <label for="modalHour">Час</label>
             <input id="modalHour" type="text" readonly>
         </div>
 
         <div class="form-group">
             <label for="modalSubject">Предмет</label>
-            <input id="modalSubject" type="text" placeholder="напр. Математика">
+            <input id="modalSubject" type="text" placeholder="напр. Математика" oninput="refreshConflictUI()" autocomplete="off">
         </div>
 
         <div class="form-group">
             <label for="modalLocation">Място за провеждане</label>
-            <input id="modalLocation" type="text" placeholder="напр. Кабинет 205">
+            <input id="modalLocation" type="text" placeholder="напр. Кабинет 205" oninput="refreshConflictUI()" autocomplete="off">
         </div>
 
         <div class="form-group">
-            <label>Допълнителни класове</label>
-            <div id="extraClassesBox" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:14px;max-height:180px;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:6px;"></div>
+            <label id="extraClassesLabel">Класове</label>
+            <div id="extraClassesBox" role="group" aria-labelledby="extraClassesLabel" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:14px;max-height:180px;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:6px;"></div>
         </div>
+
+        <div id="conflictSummary" class="conflict-summary" aria-live="polite"></div>
+        <div id="conflictBox" class="conflict-box" aria-live="polite"></div>
 
         <input id="modalId" type="hidden">
 
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeModal()">Отказ</button>
-            <button class="btn-primary" onclick="saveConsultation()">Запази</button>
+            <button id="modalSaveBtn" class="btn-primary" onclick="saveConsultation()">Запази</button>
         </div>
     </div>
 </div>

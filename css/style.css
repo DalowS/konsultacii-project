@@ -328,6 +328,8 @@
     .modal {
         width: 100%;
         max-width: 480px;
+        max-height: 92vh;
+        overflow-y: auto;
         background: white;
         border-radius: 12px;
         padding: 22px;
@@ -399,3 +401,78 @@
 
     .group-badge { font-size: 12px; color: #475569; margin-top: 3px; }
     .group-add-slot { margin-top: 6px; padding: 6px; border: 1px dashed #94a3b8; border-radius: 6px; font-size: 12px; cursor: pointer; text-align: center; }
+
+
+    /* ===== UX: достъпност, индикатор на изгледа, конфликти ===== */
+    :focus-visible {
+        outline: 3px solid #1d4ed8;
+        outline-offset: 2px;
+    }
+
+    button:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+    }
+
+    .stage-tab { font-size: 16px; padding: 12px 18px; min-height: 44px; }
+
+    .view-indicator {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px 14px;
+        margin: 0 0 14px;
+        padding: 10px 14px;
+        border: 2px solid #1d4ed8;
+        border-radius: 10px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 17px;
+    }
+
+    .view-indicator.changed {
+        background: #fef9c3;
+        border-color: #a16207;
+        color: #713f12;
+    }
+
+    .view-indicator .view-note { font-size: 15px; font-weight: 600; }
+
+    .modal-wide { max-width: 920px; }
+    .my-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    .my-table th, .my-table td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
+    .my-table th { background: #f1f5f9; }
+    .table-scroll { overflow-x: auto; }
+
+    #extraClassesBox label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 0; }
+    #extraClassesBox input[type="checkbox"] { width: 20px; height: 20px; }
+    .class-state { font-size: 13px; font-weight: 700; }
+    .class-state.good { color: #166534; }
+    .class-state.bad { color: #9a3412; }
+
+    .conflict-summary p { margin: 6px 0; font-size: 15px; font-weight: 600; }
+    .conflict-summary.ok p { color: #166534; }
+    .conflict-summary.warn p { color: #9a3412; }
+    .conflict-summary.error p { color: #991b1b; }
+
+    .conflict-item {
+        margin: 8px 0;
+        padding: 10px 12px;
+        border: 2px solid #b45309;
+        border-radius: 8px;
+        background: #fff7ed;
+        color: #7c2d12;
+        font-size: 14px;
+    }
+    .conflict-item .conflict-title { margin: 0 0 4px; font-weight: 700; }
+    .conflict-item ul { margin: 0; padding-left: 20px; }
+
+    .sr-only {
+        position: absolute;
+        width: 1px; height: 1px;
+        padding: 0; margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }

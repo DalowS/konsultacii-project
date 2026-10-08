@@ -25,6 +25,7 @@ function getCellRecords(className, shift, day, hour) {
 }
 
 function renderSchedule() {
+    updateViewIndicator();
     const className = document.getElementById("classSelect").value;
     const shift = Number(document.getElementById("shiftSelect").value);
 
@@ -121,7 +122,7 @@ function openAddModal(className, shift, day, hour) {
     document.querySelectorAll(".extraClass").forEach(c=>c.checked=(c.value===className));
     document.getElementById("modalId").value = "";
 
-    document.getElementById("modalOverlay").style.display = "flex";
+    openModalOverlay();
 
     setTimeout(() => {
         document.getElementById("modalSubject").focus();
@@ -151,7 +152,7 @@ function editConsultation(id) {
     document.querySelectorAll(".extraClass").forEach(c=>c.checked=cls.includes(c.value));
     document.getElementById("modalId").value = record.id;
 
-    document.getElementById("modalOverlay").style.display = "flex";
+    openModalOverlay();
 
     setTimeout(() => {
         document.getElementById("modalSubject").focus();
@@ -161,6 +162,7 @@ function editConsultation(id) {
 function closeModal() {
     document.getElementById("modalOverlay").style.display = "none";
     adminEditingId = "";
+    restoreFocus();
 }
 
 function populateAdminFilters() {
@@ -320,7 +322,7 @@ function adminEdit(id) {
     document.querySelectorAll(".extraClass").forEach(c=>c.checked=cls.includes(c.value));
     document.getElementById("modalId").value = record.id;
 
-    document.getElementById("modalOverlay").style.display = "flex";
+    openModalOverlay();
 
     setTimeout(() => {
         document.getElementById("modalSubject").focus();
@@ -358,6 +360,9 @@ function showStatus(message, type) {
     ==========================================================
 */
 let adminEditingId = "";
+let viewNote = "";                       // съобщение след автоматично обръщане на смяната
+let viewNoteTimer = null;
+let lastFocused = null;                  // къде да се върне фокусът след затваряне на прозорец
 let currentStage = DEFAULT_STAGE;        // един списък класове/консултации, филтрира се само изгледът
 const STAGE_PREF_KEY = "grafik.stage";   // предпочитание на интерфейса (не данни)
 let saving = false;
@@ -625,6 +630,8 @@ function renderViews() {
         populateClasses();
     }
     if (isVisible("teacherScreen")) renderSchedule();
+    refreshConflictUI();                                  // новите данни (Realtime) може да променят конфликтите
+    if (isMyModalOpen()) renderMyConsultations();
     if (isVisible("adminScreen")) {
         refreshAdmin();
         renderClassesAdmin();
@@ -664,11 +671,38 @@ function renderStageTabs() {
 
 function setStage(stage) {
     if (!STAGE_ORDER.includes(stage) || stage === currentStage) return;
+    const shiftSelect = document.getElementById("shiftSelect");
+    const previousShift = Number(shiftSelect.value) || 1;
     currentStage = stage;
     try { localStorage.setItem(STAGE_PREF_KEY, stage); } catch (e) { /* не е критично */ }
+
+    // Етапите са в противоположни смени (гимназия I <-> прогимназия II). Обръщаме смяната само
+    // при смяна на етапа – не при смяна на клас, филтър и т.н.
+    const newShift = getOppositeShift(previousShift);
+    shiftSelect.value = String(newShift);
+
     populateClasses();
     renderStageTabs();
     renderViews();
+    setViewNote(`Смяната е сменена автоматично: ${shiftText(previousShift)} → ${shiftText(newShift)} смяна.`);
+}
+
+// Ясен индикатор: "Прогимназиален етап · II смяна" (+ бележка след автоматична смяна)
+function updateViewIndicator() {
+    const el = document.getElementById("viewIndicator");
+    if (!el) return;
+    const shift = Number(document.getElementById("shiftSelect").value) || 1;
+    el.innerHTML = `<strong>${escapeHtml(STAGES[currentStage].label)} · ${shiftText(shift)} смяна</strong>` +
+        (viewNote ? `<span class="view-note">${escapeHtml(viewNote)}</span>` : "");
+    el.classList.toggle("changed", !!viewNote);
+}
+
+function setViewNote(text) {
+    viewNote = text;
+    clearTimeout(viewNoteTimer);
+    updateViewIndicator();
+    viewNoteTimer = setTimeout(() => { viewNote = ""; updateViewIndicator(); }, 6000);
+    if (viewNoteTimer && viewNoteTimer.unref) viewNoteTimer.unref();
 }
 
 /*
@@ -695,7 +729,8 @@ function buildExtraClasses() {
     box.innerHTML = "";
     stageClasses().forEach(c => {
         const lbl = document.createElement("label");
-        lbl.innerHTML = `<input type="checkbox" class="extraClass" value="${escapeHtml(c)}"> ${escapeHtml(c)}`;
+        lbl.innerHTML = `<input type="checkbox" class="extraClass" value="${escapeHtml(c)}"> ${escapeHtml(c)} <span class="class-state" data-class="${escapeHtml(c)}"></span>`;
+        lbl.addEventListener("change", refreshConflictUI);
         box.appendChild(lbl);
     });
 }
@@ -801,23 +836,26 @@ async function saveTeacher(id, btn) {
 async function saveConsultation() {
     if (saving) return;                     // защита от двоен клик
 
-    const className = document.getElementById("modalClass").value;
     const { shift, hour } = modalSlot;
     const day = document.getElementById("modalDay").value;
-    const subject = document.getElementById("modalSubject").value.trim();
-    const location = document.getElementById("modalLocation").value.trim();
-    const id = document.getElementById("modalId").value;
-    const checked = [...document.querySelectorAll(".extraClass:checked")].map(x => x.value);
-    const effectiveId = adminEditingId || id;
-    // При редакция на консултация с класове и от другия етап, тези класове не се губят.
-    const original = effectiveId ? storage.getAll().find(r => r.id === effectiveId) : null;
-    const outside = original ? normalizeClasses(original).filter(c => stageOfClass(c) !== currentStage) : [];
-    const classes = [...new Set([className, ...checked, ...outside])];
+    const ctx = currentModalParams();
+    const { subject, location } = ctx.params;
+    const effectiveId = ctx.effectiveId;
 
     if (!subject) { alert("Моля, въведете предмет."); return; }
     if (!isValidPosition(shift, hour)) { alert("Невалиден час. Този запис е със стара стойност на часа – изтрийте го и го създайте отново."); return; }
 
-    const btn = document.querySelector("#modalOverlay .btn-primary");
+    // Бърза проверка върху заредените данни; при частичен конфликт се записват само свободните класове.
+    const ev = evaluateSelection(storage.getAll(), ctx.params);
+    if (!ev.canSave) {
+        refreshConflictUI();
+        alert(summarizeSelection(ev).filter(m => m.level !== "ok").map(m => m.text).join("\n"));
+        return;
+    }
+    const classes = ev.free;
+    const skipped = ev.blocked;
+
+    const btn = document.getElementById("modalSaveBtn");
     saving = true;
     setBusy(btn, true, "Записване...");
     try {
@@ -826,7 +864,8 @@ async function saveConsultation() {
         else await storage.add(record);
         closeModal();
         renderViews();
-        notify(effectiveId ? "Консултацията е променена." : "Консултацията е добавена и клетката е заключена.", "success");
+        notify((effectiveId ? "Консултацията е променена." : "Консултацията е добавена и клетката е заключена.") +
+            (skipped.length ? ` Не е записана за (конфликт): ${skipped.join(", ")}.` : ""), "success");
     } catch (error) {
         console.error(error);
         alert(friendlyError(error, "Неуспешно записване на консултация. Моля, опитайте отново."));
@@ -834,6 +873,7 @@ async function saveConsultation() {
     } finally {
         saving = false;
         setBusy(btn, false);
+        refreshConflictUI();
     }
 }
 
@@ -1018,29 +1058,165 @@ function exportCSV() {
     downloadFile(`grafik-konsultacii-${stage.file}.csv`, "\uFEFF" + csv, "text/csv;charset=utf-8;");
 }
 
-function printScheduleReport() {
-    const stage = STAGES[currentStage];
-    const records = scopedRecords();
-    if (!records.length) { alert(`Няма данни (${stage.label}).`); return; }
+// Оформление на печатния документ: заглавието и таблицата са в един контейнер на цялата
+// широчина на печатното поле, затова имат обща хоризонтална ос (заглавието е центрирано
+// спрямо страницата И таблицата). Заглавията/колоните на браузъра (header/footer) не са тук.
+const PRINT_CSS = `
+    @page { margin: 15mm; }
+    html, body { margin: 0; padding: 0; }
+    .sheet { width: 100%; margin: 0 auto; }
+    .sheet h2 { text-align: center; margin: 0 0 16px; }
+    .sheet table { width: 100%; border-collapse: collapse; margin: 0 auto; }
+    .sheet th, .sheet td { border: 1px solid #000; padding: 6px; }
+`;
+
+function writePrintDocument(title, headers, rows) {
     const w = window.open("", "_blank");
     if (!w) { alert("Браузърът блокира новия прозорец."); return; }
-    const title = `График за консултации – ${stage.label}`;
-    let html = `<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><h2>${escapeHtml(title)}</h2><table border="1" cellspacing="0" cellpadding="6"><tr><th>Учител</th><th>Предмет</th><th>Класове</th><th>Ден</th><th>Смяна</th><th>Час</th><th>Място</th></tr>`;
-    records.forEach(r => html += `<tr><td>${escapeHtml(r.teacher)}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.classes.join(", "))}</td><td>${escapeHtml(r.day)}</td><td>${shiftText(r.shift)}</td><td>${escapeHtml(hourLabel(r))}</td><td>${escapeHtml(r.location || "")}</td></tr>`);
-    html += "</table></body></html>";
+    const head = headers.map(h => `<th>${escapeHtml(h)}</th>`).join("");
+    const body = rows.map(cells => `<tr>${cells.map(c => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
+    const html = `<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head><body><div class="sheet"><h2>${escapeHtml(title)}</h2><table><tr>${head}</tr>${body}</table></div></body></html>`;
     w.document.write(html);
     w.document.close();
     w.print();
 }
 
+function printScheduleReport() {
+    const stage = STAGES[currentStage];
+    const records = scopedRecords();
+    if (!records.length) { alert(`Няма данни (${stage.label}).`); return; }
+    writePrintDocument(`График за консултации – ${stage.label}`,
+        ["Учител", "Предмет", "Класове", "Ден", "Смяна", "Час", "Място"],
+        records.map(r => [r.teacher, r.subject, r.classes.join(", "), r.day, shiftText(r.shift), hourLabel(r), r.location || ""]));
+}
+
+// Печат на ВСИЧКИ консултации на влезлия учител (двата етапа, двете смени)
+function printMyConsultations() {
+    const records = myRecords();
+    if (!records.length) { alert("Нямате консултации за печат."); return; }
+    writePrintDocument(`Моите консултации – ${currentUser.name}`,
+        ["Етап", "Ден", "Смяна", "Час", "Предмет", "Класове", "Място"],
+        records.map(r => [stageNamesOfRecord(r), r.day, shiftText(r.shift), hourLabel(r), r.subject, r.classes.join(", "), r.location || ""]));
+}
+
+// „Моите консултации“ е глобален изглед – не зависи от избрания етап.
+const myRecords = () => storage.getAll()
+    .filter(r => currentUser && r.teacherId === currentUser.id)
+    .sort(compareRecordsByTime);
+
+function isMyModalOpen() { return document.getElementById("myConsultationsModal").style.display === "flex"; }
+
+function renderMyConsultations() {
+    const records = myRecords();
+    document.getElementById("myConsultationsList").innerHTML = records.length
+        ? `<div class="table-scroll"><table class="my-table"><caption class="sr-only">Всички ваши консултации</caption>` +
+          `<thead><tr><th scope="col">Етап</th><th scope="col">Ден</th><th scope="col">Смяна</th><th scope="col">Час</th><th scope="col">Предмет</th><th scope="col">Класове</th><th scope="col">Място</th></tr></thead><tbody>` +
+          records.map(r => `<tr><td>${escapeHtml(stageNamesOfRecord(r))}</td><td>${escapeHtml(r.day)}</td><td>${shiftText(r.shift)}</td><td>${escapeHtml(hourLabel(r))}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.classes.join(", "))}</td><td>${escapeHtml(r.location || "")}</td></tr>`).join("") +
+          `</tbody></table></div>`
+        : "<p>Нямате консултации.</p>";
+    document.getElementById("myPrintBtn").disabled = records.length === 0;
+}
+
 function showMyConsultations() {
-    const records = scopedRecords().filter(r => r.teacherId === currentUser.id);
-    const note = `<div style="padding:4px 8px 10px;color:#64748b;font-size:13px;">${escapeHtml(STAGES[currentStage].label)} – за другия етап превключете раздела.</div>`;
-    document.getElementById("myConsultationsList").innerHTML = note + (records.map(r =>
-        `<div style="padding:8px;border-bottom:1px solid #ddd"><b>${escapeHtml(r.subject)}</b><br>${escapeHtml(r.day)} | ${shiftText(r.shift)} смяна | ${escapeHtml(hourLabel(r))}<br>Класове: ${escapeHtml(r.classes.join(", "))}${r.location ? `<br>Място: ${escapeHtml(r.location)}` : ""}</div>`
-    ).join("") || "Няма консултации");
+    lastFocused = document.activeElement;
+    renderMyConsultations();
     document.getElementById("myConsultationsModal").style.display = "flex";
 }
+
+function closeMyConsultations() {
+    document.getElementById("myConsultationsModal").style.display = "none";
+    restoreFocus();
+}
+
+/*
+    ==========================================================
+    ФОРМА: проверка за конфликт при попълване (UX) + достъпност
+    Сървърът (save_consultation) остава последната защита срещу race condition.
+    ==========================================================
+*/
+function isModalOpen() { return document.getElementById("modalOverlay").style.display === "flex"; }
+
+function openModalOverlay() {
+    lastFocused = document.activeElement;
+    document.getElementById("modalOverlay").style.display = "flex";
+    refreshConflictUI();
+}
+
+function restoreFocus() {
+    const el = lastFocused;
+    lastFocused = null;
+    if (el && typeof el.focus === "function") el.focus();
+}
+
+// Параметри на проверката от текущото състояние на формата (ден + смяна + час = слот).
+function currentModalParams() {
+    const effectiveId = adminEditingId || document.getElementById("modalId").value;
+    const original = effectiveId ? storage.getAll().find(r => r.id === effectiveId) : null;
+    // Класове на другия етап при редакция не се губят (те не се виждат в списъка).
+    const outside = original ? normalizeClasses(original).filter(c => stageOfClass(c) !== currentStage) : [];
+    const checked = [...document.querySelectorAll(".extraClass:checked")].map(x => x.value);
+    return {
+        effectiveId, original,
+        params: {
+            day: document.getElementById("modalDay").value,
+            shift: modalSlot.shift,
+            hour: modalSlot.hour,
+            subject: document.getElementById("modalSubject").value.trim(),
+            location: document.getElementById("modalLocation").value.trim(),
+            classes: [...new Set([...checked, ...outside])],
+            excludeId: effectiveId || "",
+            teacherId: original ? original.teacherId : (currentUser && currentUser.id),
+            groupSubjects: getGroupSubjects()
+        }
+    };
+}
+
+function conflictItemHtml(d) {
+    return `<div class="conflict-item"><p class="conflict-title">${escapeHtml(d.title)}</p><ul>` +
+        d.details.map(([k, v]) => `<li>${escapeHtml(k)}: <strong>${escapeHtml(v)}</strong></li>`).join("") + `</ul></div>`;
+}
+
+function refreshConflictUI() {
+    if (!isModalOpen()) return;
+    const records = storage.getAll();
+    const { params } = currentModalParams();
+    const ev = evaluateSelection(records, params);
+
+    const messages = summarizeSelection(ev);
+    const level = messages.some(m => m.level === "error") ? "error" : messages.some(m => m.level === "warn") ? "warn" : "ok";
+    const summary = document.getElementById("conflictSummary");
+    summary.className = `conflict-summary ${level}`;
+    summary.innerHTML = messages.map(m => `<p>${escapeHtml(m.text)}</p>`).join("");
+
+    let details = "";
+    if (ev.teacherConflict) {
+        const r = ev.teacherConflict;
+        details += conflictItemHtml({ title: "⚠️ Учителят вече има консултация в този час.",
+            details: [["Предмет", r.subject], ["Класове", r.classes.join(", ")]].concat(r.location ? [["Място", r.location]] : []) });
+    }
+    ev.blocked.forEach(c => { details += conflictItemHtml(describeClassConflict(c, ev.conflicts[c])); });
+    document.getElementById("conflictBox").innerHTML = details;
+
+    const markers = classMarkers(records, params, stageClasses());
+    document.querySelectorAll(".class-state").forEach(span => {
+        const text = markers[span.dataset.class] || "";
+        span.textContent = text;
+        span.className = "class-state" + (text.startsWith("⚠") ? " bad" : text ? " good" : "");
+    });
+
+    const btn = document.getElementById("modalSaveBtn");
+    if (btn && !saving) {
+        btn.disabled = !ev.canSave;
+        btn.setAttribute("aria-disabled", String(!ev.canSave));
+    }
+}
+
+// Escape затваря отворения прозорец
+document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    if (isModalOpen()) closeModal();
+    else if (isMyModalOpen()) closeMyConsultations();
+});
 
 /*
     ==========================================================

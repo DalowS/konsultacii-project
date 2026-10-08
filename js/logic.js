@@ -53,10 +53,9 @@
 
     /* ------------------------------------------------------------------
      * ЧАСОВЕ – единственият източник на истина.
-     * 13 физически слота. I смяна = слотове 1..7, II смяна = слотове 7..13.
-     * Слот 7 (12:35 - 13:15) е ОБЩ за двете смени.
-     * В базата (shift, hour) остава: shift 1..2, hour 1..7 (позиция в смяната).
-     *   slot = shift 1 ? hour : hour + 6
+     * 13 интервала. I смяна = 7 позиции (7:30 - 13:15), II смяна = 7 позиции (12:35 - 18:30).
+     * 12:35 - 13:15 е етикет на I смяна/7-ми час И на II смяна/1-ви час – две НЕЗАВИСИМИ клетки.
+     * В базата: shift 1..2, hour 1..7; слотът е (ден, смяна, час).
      * ------------------------------------------------------------------ */
     const TIME_SLOTS = [
         "7:30 - 8:10", "8:20 - 9:00", "9:10 - 9:50", "10:10 - 10:50", "11:00 - 11:40",
@@ -70,13 +69,13 @@
         (Number(shift) === 1 || Number(shift) === 2) &&
         Number.isInteger(Number(hour)) && Number(hour) >= 1 && Number(hour) <= POSITIONS_PER_SHIFT;
 
-    // Физически слот (1..13). Ползва се САМО за реален времеви конфликт (сървърът прави същото
-    // с slot_of()). Клетките в графика са отделни: I смяна/7 и II смяна/1 НЕ се оглеждат.
-    const slotOf = (shift, hour) => Number(shift) === 1 ? Number(hour) : Number(hour) + 6;
-    const slotLabel = slot => TIME_SLOTS[slot - 1] || "";
+    // САМО за показване: индекс в TIME_SLOTS за позиция (смяна, час). Не е идентичност на слот –
+    // слотът в графика и при конфликтите е (ден, смяна, час); I смяна/7 и II смяна/1 са независими
+    // клетки, които просто имат еднакъв етикет 12:35 - 13:15.
+    const labelIndex = (shift, hour) => (Number(shift) === 1 ? Number(hour) : Number(hour) + 6) - 1;
 
     // Интервал за позиция; "" ако позицията е невалидна (напр. стари записи с час 8).
-    const positionLabel = (shift, hour) => isValidPosition(shift, hour) ? slotLabel(slotOf(shift, hour)) : "";
+    const positionLabel = (shift, hour) => isValidPosition(shift, hour) ? (TIME_SLOTS[labelIndex(shift, hour)] || "") : "";
 
     const shiftText = shift => Number(shift) === 1 ? "I" : "II";
 
@@ -84,8 +83,8 @@
      * ЕТАПИ – определят се само от номера на класа (без ново поле в базата)
      * ------------------------------------------------------------------ */
     const STAGES = {
-        gymnasium:    { label: "Гимназиален етап",    file: "gimnazialen-etap",    minGrade: 8, maxGrade: 12 },
-        progymnasium: { label: "Прогимназиален етап", file: "progimnazialen-etap", minGrade: 5, maxGrade: 7 }
+        gymnasium:    { label: "Гимназиален етап",    short: "Гимназиален",    file: "gimnazialen-etap",    minGrade: 8, maxGrade: 12 },
+        progymnasium: { label: "Прогимназиален етап", short: "Прогимназиален", file: "progimnazialen-etap", minGrade: 5, maxGrade: 7 }
     };
     const STAGE_ORDER = ["gymnasium", "progymnasium"];
     const DEFAULT_STAGE = "gymnasium";
@@ -136,6 +135,113 @@
         return { ok: true, name: `${g}${l}`, grade: g, letter: l };
     }
 
+
+    /* ------------------------------------------------------------------
+     * СМЕНИ: при смяна на етапа смяната се обръща (I <-> II).
+     * Реалното разпределение: когато единият етап е на I смяна, другият е на II.
+     * ------------------------------------------------------------------ */
+    const getOppositeShift = shift => Number(shift) === 1 ? 2 : 1;
+
+    // Етапи на консултация според класовете ѝ: "Прогимназиален / Гимназиален"
+    function stageNamesOfRecord(record) {
+        const keys = new Set(normalizeClasses(record).map(stageOfClass).filter(Boolean));
+        return ["progymnasium", "gymnasium"].filter(k => keys.has(k)).map(k => STAGES[k].short).join(" / ");
+    }
+
+    // Подредба по ден, смяна, час (после предмет)
+    function compareRecordsByTime(a, b) {
+        return (dayToIndex(a.day) - dayToIndex(b.day)) ||
+               (Number(a.shift) - Number(b.shift)) ||
+               (Number(a.hour) - Number(b.hour)) ||
+               String(a.subject).localeCompare(String(b.subject), "bg");
+    }
+
+    /* ------------------------------------------------------------------
+     * ПРОВЕРКА ЗА КОНФЛИКТ ПРИ ПОПЪЛВАНЕ (UX). Огледало на правилата на сървъра
+     * (save_consultation) върху вече заредените данни. Сървърът остава последната защита.
+     * Слотът е (ден, смяна, час): I смяна/7 и II смяна/1 са независими.
+     * ------------------------------------------------------------------ */
+    const sameCell = (r, p) => r.day === p.day && Number(r.shift) === Number(p.shift) && Number(r.hour) === Number(p.hour);
+    const notSelf = (r, p) => !p.excludeId || String(r.id) !== String(p.excludeId);
+    const normLocation = v => String(v || "").trim().toLocaleLowerCase("bg-BG");
+
+    const isGroupSubjectIn = (subject, groupSubjects) =>
+        !!normalizeSubject(subject) && (groupSubjects || []).some(g => normalizeSubject(g) === normalizeSubject(subject));
+
+    // null или { type: "occupied" | "groups_full" | "same_location", record }
+    function findClassConflict(records, p) {
+        const cell = records.filter(r => notSelf(r, p) && sameCell(r, p) && normalizeClasses(r).includes(p.className));
+        if (!cell.length) return null;
+        const group = isGroupSubjectIn(p.subject, p.groupSubjects);
+        const sameSubject = cell.every(r => normalizeSubject(r.subject) === normalizeSubject(p.subject));
+        if (!group || !sameSubject) return { type: "occupied", record: cell[0] };
+        if (cell.length >= 2) return { type: "groups_full", record: cell[0] };
+        const loc = normLocation(p.location);
+        const clash = loc ? cell.find(r => normLocation(r.location) === loc) : null;
+        return clash ? { type: "same_location", record: clash } : null;
+    }
+
+    // Същият учител вече има консултация в същата клетка (ден + смяна + час)?
+    function findTeacherConflict(records, p) {
+        return records.find(r => notSelf(r, p) && sameCell(r, p) && r.teacherId === p.teacherId) || null;
+    }
+
+    function evaluateSelection(records, p) {
+        const selected = p.classes || [];
+        const conflicts = {}, free = [], blocked = [];
+        selected.forEach(c => {
+            const x = findClassConflict(records, { ...p, className: c });
+            if (x) { conflicts[c] = x; blocked.push(c); } else free.push(c);
+        });
+        const teacherConflict = p.teacherId ? findTeacherConflict(records, p) : null;
+        const needsLocation = isGroupSubjectIn(p.subject, p.groupSubjects) && !String(p.location || "").trim();
+        return {
+            free, blocked, conflicts, teacherConflict, needsLocation,
+            noClasses: selected.length === 0,
+            allBlocked: selected.length > 0 && free.length === 0,
+            canSave: free.length > 0 && !teacherConflict && !needsLocation
+        };
+    }
+
+    // Съобщения под списъка с класове: [{ level: "ok"|"warn"|"error", text }]
+    function summarizeSelection(ev) {
+        const out = [];
+        if (ev.noClasses) out.push({ level: "error", text: "Изберете поне един клас." });
+        if (ev.teacherConflict) out.push({ level: "error", text: "⚠️ Вече има ваша консултация в този ден, смяна и час. Изберете друг час." });
+        if (ev.allBlocked) {
+            out.push({ level: "error", text: "⚠️ Всички избрани класове имат конфликт в този час. Изберете друг час или премахнете конфликтните класове." });
+        } else if (ev.blocked.length) {
+            const n = ev.blocked.length;
+            out.push({ level: "warn", text: `⚠ ${n} ${n === 1 ? "избран клас има" : "избрани класа имат"} конфликт. Можете да продължите с останалите свободни класове.` });
+        }
+        if (ev.needsLocation) out.push({ level: "error", text: "⚠ При предмет с паралелни групи трябва да бъде посочено място." });
+        if (!out.length) out.push({ level: "ok", text: "✓ Няма конфликти." });
+        return out;
+    }
+
+    // Конкретно описание на конфликта: заглавие + редове "Предмет / Ден / Смяна / Час / Учител"
+    function describeClassConflict(className, conflict) {
+        const r = conflict.record;
+        const title = conflict.type === "groups_full" ? `⚠️ ${className}: вече има две паралелни групи в този час.`
+            : conflict.type === "same_location" ? `⚠️ ${className}: местото „${r.location}“ вече се ползва от паралелна група.`
+            : `⚠️ ${className} вече има консултация.`;
+        const details = [["Предмет", r.subject], ["Ден", r.day], ["Смяна", shiftText(r.shift)],
+                         ["Час", positionLabel(r.shift, r.hour) || String(r.hour)], ["Учител", r.teacher]];
+        if (r.location) details.push(["Място", r.location]);
+        return { title, details };
+    }
+
+    // Маркер до всеки клас: "✓" (избран и свободен), "⚠ Има конфликт", или "".
+    function classMarkers(records, p, classNames) {
+        const selected = new Set(p.classes || []);
+        const out = {};
+        classNames.forEach(c => {
+            const x = findClassConflict(records, { ...p, className: c });
+            out[c] = x ? "⚠ Има конфликт" : (selected.has(c) ? "✓" : "");
+        });
+        return out;
+    }
+
     // Групира в логически клетки: "клас|смяна|ден|час" (за статистиката).
     function countOccupiedCells(records) {
         const cells = new Set();
@@ -145,9 +251,11 @@
 
     const api = { DAY_NAMES, dayToIndex, indexToDay, normalizeSubject, normalizeClasses,
                   compareClassNames, escapeHtml, csvCell, friendlyError, countOccupiedCells,
-                  TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition, slotOf, slotLabel,
+                  TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition,
                   positionLabel, shiftText, normalizeParallel, buildClassName,
-                  STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords };
+                  STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords,
+                  getOppositeShift, stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,
+                  findTeacherConflict, evaluateSelection, summarizeSelection, describeClassConflict, classMarkers };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else Object.assign(root, api);
 })(typeof window !== "undefined" ? window : globalThis);
