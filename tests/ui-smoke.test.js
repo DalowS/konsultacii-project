@@ -494,7 +494,7 @@ test("печат от „Моите консултации“: всички ко
     const t = setup();
     t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; setStage("progymnasium"); printMyConsultations();`);
     const html = t.printed[0];
-    assert.match(html, /<div class="sheet"><h2>Моите консултации – Учител<\/h2><table>/);
+    assert.match(html, /<div class="sheet sheet-fit"><h2>Моите консултации – Учител<\/h2><table>/);
     assert.match(html, /\.sheet h2 \{ text-align: center;/);
     assert.match(html, /<th>Етап<\/th><th>Ден<\/th><th>Смяна<\/th><th>Час<\/th><th>Предмет<\/th><th>Класове<\/th><th>Място<\/th>/);
     assert.equal((html.match(/<tr><td>/g) || []).length, 6);         // и 5-7, и 8-12
@@ -540,4 +540,165 @@ test("достъпност (статично): роли, labels, focus-visible, 
     assert.match(css, /:focus-visible/);
     assert.match(css, /button:disabled/);
     assert.match(css, /\.sr-only/);
+});
+
+/* ===================== v2.5: карти „Класове“ и печат ===================== */
+const cardOf = (html, key) => {
+    const i = html.indexOf(`data-stage="${key}"`);
+    if (i < 0) return "";
+    const j = html.indexOf("</section>", i);
+    return html.slice(i, j);
+};
+const classCells = card => [...card.matchAll(/<td><strong>([^<]+)<\/strong><\/td>/g)].map(m => m[1]);
+
+function setupClasses(t) {
+    // 5А,7А (прогимназия), 8А,8Б (гимназия) + празни 6А (без консултации) и 9А
+    t.run(`storage._classes = [{id:1,name:"8А"},{id:2,name:"8Б"},{id:3,name:"5А"},{id:4,name:"7А"},{id:5,name:"6А"},{id:6,name:"9А"}]
+           .sort((a,b)=>compareClassNames(a.name,b.name)); CONFIG.classes = storage.getClassNames(); renderClassesAdmin();`);
+    return t.elements.classesAdmin.innerHTML;
+}
+
+test("Класове: две карти – Прогимназиален вляво, Гимназиален вдясно", () => {
+    const t = setup();
+    const html = setupClasses(t);
+    assert.ok(html.indexOf('data-stage="progymnasium"') < html.indexOf('data-stage="gymnasium"'), "прогимназията е първа (лява)");
+    assert.match(cardOf(html, "progymnasium"), /<h4>Прогимназиален етап<\/h4>/);
+    assert.match(cardOf(html, "gymnasium"), /<h4>Гимназиален етап<\/h4>/);
+    assert.equal((html.match(/<section class="class-card/g) || []).length, 2);
+});
+
+test("Класове: 5–7 само в прогимназията, 8–12 само в гимназията; всички са показани", () => {
+    const t = setup();
+    const html = setupClasses(t);
+    assert.deepEqual(classCells(cardOf(html, "progymnasium")), ["5А", "6А", "7А"]);
+    assert.deepEqual(classCells(cardOf(html, "gymnasium")), ["8А", "8Б", "9А"]);
+    const all = [...classCells(cardOf(html, "progymnasium")), ...classCells(cardOf(html, "gymnasium"))].sort();
+    assert.deepEqual(all, t.run("storage.getClassNames()").slice().sort());       // нищо не липсва и няма дубликати
+});
+
+test("Класове: колони Клас | Консултации | Действие във всяка карта", () => {
+    const t = setup();
+    const html = setupClasses(t);
+    for (const key of ["progymnasium", "gymnasium"]) {
+        assert.match(cardOf(html, key), /<th scope="col">Клас<\/th><th scope="col">Консултации<\/th><th scope="col">Действие<\/th>/);
+    }
+});
+
+test("Класове: броят консултации е непроменен", () => {
+    const t = setup();
+    const html = setupClasses(t);
+    const count = (card, cls) => Number(new RegExp(`<strong>${cls}</strong></td>\\s*<td class="num">(\\d+)</td>`).exec(card)[1]);
+    // от данните: 8А – записи 1,2,6; 8Б – 3,4; 5А – 5; 7А – 6; 6А, 9А – 0
+    assert.equal(count(cardOf(html, "gymnasium"), "8А"), 3);
+    assert.equal(count(cardOf(html, "gymnasium"), "8Б"), 2);
+    assert.equal(count(cardOf(html, "gymnasium"), "9А"), 0);
+    assert.equal(count(cardOf(html, "progymnasium"), "5А"), 1);
+    assert.equal(count(cardOf(html, "progymnasium"), "7А"), 1);
+    assert.equal(count(cardOf(html, "progymnasium"), "6А"), 0);
+});
+
+test("Класове: с консултации – компактно „Има консултации“, без бутон; без консултации – бутон „Изтрий“", () => {
+    const t = setup();
+    const html = setupClasses(t);
+    const g = cardOf(html, "gymnasium"), p = cardOf(html, "progymnasium");
+    assert.match(g, /Има консултации/);
+    assert.ok(!/не може да се изтрие<\/span>/.test(g), "без дълъг разтягащ се текст");
+    assert.ok(!g.includes("deleteClass('1'") && !g.includes("deleteClass('2'"), "8А/8Б (с консултации) нямат Изтрий");
+    assert.ok(g.includes("deleteClass('6'"), "9А (без консултации) има Изтрий");
+    assert.ok(p.includes("deleteClass('5'"), "6А (без консултации) има Изтрий");
+    assert.ok(!p.includes("deleteClass('3'") && !p.includes("deleteClass('4'"));
+    assert.match(g, /<button class="btn-danger btn-compact"/);
+});
+
+test("Класове: изтриването продължава да работи (празен клас се трие, с консултации – няма бутон)", async () => {
+    const t = setup();
+    setupClasses(t);
+    t.run(`storage.deleteClass = async id => { globalThis.__deleted = id; storage._classes = storage._classes.filter(c => String(c.id) !== String(id)); };`);
+    await t.run(`deleteClass("5", null)`);                              // 6А – без консултации
+    assert.equal(t.run("__deleted"), "5");
+    const html = t.elements.classesAdmin.innerHTML;
+    assert.ok(!classCells(cardOf(html, "progymnasium")).includes("6А"), "6А изчезва от картата");
+    assert.deepEqual(classCells(cardOf(html, "progymnasium")), ["5А", "7А"]);
+});
+
+test("Класове: добавянето продължава да работи; новият клас е в правилната карта", async () => {
+    const t = setup();
+    setupClasses(t);
+    t.run(`storage.addClass = async (g, l) => { globalThis.__added = [g, l]; storage._classes.push({id: 50 + g, name: g + l}); storage._classes.sort((x, y) => compareClassNames(x.name, y.name)); };`);   // както storage.refresh()
+    t.run(`document.getElementById("newClassGrade").value = "6"; document.getElementById("newClassLetter").value = "Б";`);
+    await t.run("addClass({currentTarget:null})");
+    assert.deepEqual([...t.run("__added")], [6, "Б"]);
+    let html = t.elements.classesAdmin.innerHTML;
+    assert.deepEqual(classCells(cardOf(html, "progymnasium")), ["5А", "6А", "6Б", "7А"]);
+    assert.ok(!classCells(cardOf(html, "gymnasium")).includes("6Б"));
+    t.run(`document.getElementById("newClassGrade").value = "12"; document.getElementById("newClassLetter").value = "В";`);
+    await t.run("addClass({currentTarget:null})");
+    html = t.elements.classesAdmin.innerHTML;
+    assert.ok(classCells(cardOf(html, "gymnasium")).includes("12В"));
+    assert.ok(!classCells(cardOf(html, "progymnasium")).includes("12В"));
+});
+
+test("Класове: клас извън 5–12 не изчезва (допълнителна карта)", () => {
+    const t = setup();
+    t.run(`storage._classes.push({id:70,name:"4А"}); renderClassesAdmin();`);
+    const html = t.elements.classesAdmin.innerHTML;
+    assert.ok(classCells(cardOf(html, "other")).includes("4А"));
+    assert.match(cardOf(html, "other"), /<h4>Други класове<\/h4>/);
+});
+
+test("Класове (CSS): две колони на широк екран, една на малък; компактна таблица; без min-width 850px", () => {
+    const css = fs.readFileSync(path.join(__dirname, "..", "css", "style.css"), "utf8");
+    assert.match(css, /\.classes-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+    assert.match(css, /@media \(max-width: 760px\) \{\s*\.classes-grid \{ grid-template-columns: 1fr; \}/);
+    assert.match(css, /\.classes-table \{[^}]*min-width: 0/);
+    assert.match(css, /\.classes-table td\.action \{ width: 1%; white-space: nowrap;/);
+    assert.match(css, /\.btn-compact \{[^}]*width: auto/);
+    // общото правило за останалите таблици е непроменено
+    assert.match(css, /table \{\s*width: 100%;\s*min-width: 850px;/);
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    assert.match(html, /<div id="classesAdmin" class="classes-grid"><\/div>/);
+});
+
+test("Печат „Моите консултации“: 7 колони, правила за побиране в страницата", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; printMyConsultations();`);
+    const html = t.printed[0];
+    // структурата и заглавието са непроменени
+    assert.match(html, /<h2>Моите консултации – Учител<\/h2>/);
+    assert.match(html, /<th>Етап<\/th><th>Ден<\/th><th>Смяна<\/th><th>Час<\/th><th>Предмет<\/th><th>Класове<\/th><th>Място<\/th>/);
+    assert.equal((html.match(/<th>/g) || []).length, 7);
+    assert.equal((html.match(/<tr><td>/g) || []).length, 6);
+    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    // побиране: ширина < 100% (място вдясно), започва от левия край, пренасяне на дълги думи, чете се (11pt)
+    assert.match(css, /\.sheet-fit \{ width: calc\(100% - 8mm\); margin: 0; \}/);
+    assert.match(css, /\.sheet-fit table \{ width: 100%; table-layout: auto; margin: 0; \}/);
+    assert.match(css, /\.sheet-fit th, \.sheet-fit td \{ padding: 5px 6px; font-size: 11pt; overflow-wrap: anywhere; \}/);
+    // заглавието е в същия контейнер като таблицата и е центрирано
+    assert.match(css, /\.sheet h2 \{ text-align: center;/);
+    assert.match(html, /<div class="sheet sheet-fit"><h2>/);
+    // няма скрол/изрязване при печат и текстът не е прекалено малък
+    assert.ok(!/overflow-x|overflow:\s*(auto|scroll|hidden)/.test(css));
+    const fontPt = Math.min(...[...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)pt/g)].map(m => Number(m[1])));
+    assert.ok(fontPt >= 11, `шрифт ${fontPt}pt`);
+});
+
+test("Печат: графикът по етап и екранният изглед на „Моите консултации“ не са променени", () => {
+    const t = setup();
+    t.run("printScheduleReport()");
+    assert.match(t.printed[0], /<div class="sheet"><h2>График за консултации – Гимназиален етап<\/h2><table>/);   // без sheet-fit
+    const css = fs.readFileSync(path.join(__dirname, "..", "css", "style.css"), "utf8");
+    assert.ok(!css.includes("sheet-fit"), "print-only правилата не са в екранния CSS");
+    assert.match(css, /\.my-table \{ width: 100%; border-collapse: collapse; font-size: 15px; \}/);          // екранната таблица е същата
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; showMyConsultations();`);
+    assert.match(t.elements.myConsultationsList.innerHTML, /<table class="my-table">/);
+    assert.ok(!t.elements.myConsultationsList.innerHTML.includes("sheet"));
+});
+
+test("Печат: сортирането и всички консултации на учителя са непроменени", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; printMyConsultations();`);
+    const html = t.printed[0];
+    const order = ["Математика", "БЕЛ", "Физика", "Химия", "Англ", "Смесена"].map(x => html.indexOf(x));
+    assert.ok(order.every(i => i > 0));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
 });

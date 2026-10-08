@@ -1068,14 +1068,20 @@ const PRINT_CSS = `
     .sheet h2 { text-align: center; margin: 0 0 16px; }
     .sheet table { width: 100%; border-collapse: collapse; margin: 0 auto; }
     .sheet th, .sheet td { border: 1px solid #000; padding: 6px; }
+
+    /* „Моите консултации“: таблицата започва от левия печатаем край, остава място вдясно,
+       колоните се побират (дългите думи се пренасят) – без хоризонтален скрол/изрязване. */
+    .sheet-fit { width: calc(100% - 8mm); margin: 0; }
+    .sheet-fit table { width: 100%; table-layout: auto; margin: 0; }
+    .sheet-fit th, .sheet-fit td { padding: 5px 6px; font-size: 11pt; overflow-wrap: anywhere; }
 `;
 
-function writePrintDocument(title, headers, rows) {
+function writePrintDocument(title, headers, rows, sheetClass = "sheet") {
     const w = window.open("", "_blank");
     if (!w) { alert("Браузърът блокира новия прозорец."); return; }
     const head = headers.map(h => `<th>${escapeHtml(h)}</th>`).join("");
     const body = rows.map(cells => `<tr>${cells.map(c => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
-    const html = `<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head><body><div class="sheet"><h2>${escapeHtml(title)}</h2><table><tr>${head}</tr>${body}</table></div></body></html>`;
+    const html = `<html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head><body><div class="${sheetClass}"><h2>${escapeHtml(title)}</h2><table><tr>${head}</tr>${body}</table></div></body></html>`;
     w.document.write(html);
     w.document.close();
     w.print();
@@ -1096,7 +1102,8 @@ function printMyConsultations() {
     if (!records.length) { alert("Нямате консултации за печат."); return; }
     writePrintDocument(`Моите консултации – ${currentUser.name}`,
         ["Етап", "Ден", "Смяна", "Час", "Предмет", "Класове", "Място"],
-        records.map(r => [stageNamesOfRecord(r), r.day, shiftText(r.shift), hourLabel(r), r.subject, r.classes.join(", "), r.location || ""]));
+        records.map(r => [stageNamesOfRecord(r), r.day, shiftText(r.shift), hourLabel(r), r.subject, r.classes.join(", "), r.location || ""]),
+        "sheet sheet-fit");
 }
 
 // „Моите консултации“ е глобален изглед – не зависи от избрания етап.
@@ -1248,22 +1255,38 @@ function setModalSlot(shift, hour) {
     КЛАСОВЕ (admin): добавяне / изтриване
     ==========================================================
 */
+// Две карти една до друга: Прогимназиален (5-7) вляво, Гимназиален (8-12) вдясно.
+// Етапът се определя със същата функция като навсякъде (stageOfClass). Класове извън 5-12
+// (ако има такива) се показват в допълнителна карта, за да не изчезват.
+const CLASS_CARD_ORDER = ["progymnasium", "gymnasium"];
+
 function renderClassesAdmin() {
     const box = document.getElementById("classesAdmin");
     if (!box) return;
     const used = new Map();
     storage.getAll().forEach(r => r.classes.forEach(c => used.set(c, (used.get(c) || 0) + 1)));
-    box.innerHTML = `<thead><tr><th>Клас</th><th>Консултации</th><th></th></tr></thead><tbody>` +
-        storage.getClasses().map(c => {
-            const n = used.get(c.name) || 0;
-            return `<tr>
-                <td><strong>${escapeHtml(c.name)}</strong></td>
-                <td>${n}</td>
-                <td>${n
-                    ? `<em style="color:#64748b;">Има консултации – не може да се изтрие</em>`
-                    : `<button class="btn-danger" onclick="deleteClass('${Number(c.id)}', this)">Изтрий</button>`}</td>
-            </tr>`;
-        }).join("") + `</tbody>`;
+
+    const row = c => {
+        const n = used.get(c.name) || 0;
+        return `<tr>
+            <td><strong>${escapeHtml(c.name)}</strong></td>
+            <td class="num">${n}</td>
+            <td class="action">${n
+                ? `<span class="class-locked" title="Класът има консултации и не може да се изтрие"><span aria-hidden="true">🔒</span> Има консултации</span>`
+                : `<button class="btn-danger btn-compact" onclick="deleteClass('${Number(c.id)}', this)">Изтрий</button>`}</td>
+        </tr>`;
+    };
+    const card = (key, title, list, extra = "") =>
+        `<section class="class-card${extra}" data-stage="${key}"><h4>${escapeHtml(title)}</h4>` +
+        `<table class="classes-table"><thead><tr><th scope="col">Клас</th><th scope="col">Консултации</th><th scope="col">Действие</th></tr></thead><tbody>` +
+        (list.length ? list.map(row).join("") : `<tr><td colspan="3" class="class-empty">Няма класове.</td></tr>`) +
+        `</tbody></table></section>`;
+
+    const all = storage.getClasses();
+    let html = CLASS_CARD_ORDER.map(key => card(key, STAGES[key].label, all.filter(c => stageOfClass(c.name) === key))).join("");
+    const other = all.filter(c => !stageOfClass(c.name));
+    if (other.length) html += card("other", "Други класове", other, " class-card-wide");
+    box.innerHTML = html;
 }
 
 async function addClass(event) {

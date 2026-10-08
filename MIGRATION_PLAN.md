@@ -51,3 +51,8 @@
 - `evaluateSelection`/`findClassConflict`/`findTeacherConflict` (в `logic.js`) – UX огледало на правилата на `save_consultation`; при частичен конфликт клиентът изпраща само свободните класове; сървърната проверка е непроменена.
 - „Моите консултации“ – глобален изглед + печат; печатът е общ помощник `writePrintDocument`.
 - Без SQL промени.
+
+## v2.5 (само UI/CSS)
+- `renderClassesAdmin` – две карти по етап (рендиране); `index.html` – контейнер `div#classesAdmin.classes-grid`; `style.css` – `.classes-*`.
+- `writePrintDocument(..., sheetClass)` + `.sheet-fit` в `PRINT_CSS` – само за „Моите консултации“.
+- Без промени в логика, Supabase, RLS, RPC, Realtime и SQL.
