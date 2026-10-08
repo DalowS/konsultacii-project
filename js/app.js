@@ -1198,7 +1198,7 @@ function refreshConflictUI() {
     let details = "";
     if (ev.teacherConflict) {
         const r = ev.teacherConflict;
-        details += conflictItemHtml({ title: "⚠️ Учителят вече има консултация в този час.",
+        details += conflictItemHtml({ title: "⚠️ Вече имате консултация в този час.",
             details: [["Предмет", r.subject], ["Класове", r.classes.join(", ")]].concat(r.location ? [["Място", r.location]] : []) });
     }
     ev.blocked.forEach(c => { details += conflictItemHtml(describeClassConflict(c, ev.conflicts[c])); });
