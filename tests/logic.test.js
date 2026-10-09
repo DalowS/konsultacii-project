@@ -49,7 +49,7 @@ test("friendlyError never leaks internals", () => {
 });
 
 // ---- storage слой с фалшив Supabase клиент ----
-function loadStorage(fakeRows, rpcData = 1) {
+function loadStorage(fakeRows) {
     const tables = {
         classes: [{ id: 2, name: "8Б" }, { id: 1, name: "8А" }, { id: 3, name: "10А" }],
         group_subjects: [{ id: 1, subject: "ИТ", enabled: true }],
@@ -62,7 +62,7 @@ function loadStorage(fakeRows, rpcData = 1) {
             then: res => res({ data: table === "consultations" ? tables[table] : tables[table], error: null }) };
         return b;
     };
-    const sb = { from: builder, rpc: (name, args) => { calls.push([name, args]); return Promise.resolve({ data: rpcData, error: null }); } };
+    const sb = { from: builder, rpc: (name, args) => { calls.push([name, args]); return Promise.resolve({ data: 1, error: null }); } };
     const ctx = { sb, ...L, console };
     vm.createContext(ctx);
     vm.runInContext(fs.readFileSync(__dirname + "/../js/storage.js", "utf8") + "\nthis.storage = storage;", ctx);
@@ -91,14 +91,6 @@ test("storage.add sends normalized RPC payload", async () => {
     assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1])), {
         p_id: null, p_day: 3, p_shift: 2, p_hour: 4, p_subject: "Математика", p_location: null, p_classes: ["8А", "9Б"]
     });
-});
-
-test("storage loads the centralized stage regular shifts via RPC", async () => {
-    const config = { gymnasium: 1, progymnasium: 2 };
-    const { storage, calls } = loadStorage([], config);
-    await storage.loadStageRegularShifts();
-    assert.deepEqual(JSON.parse(JSON.stringify(storage._stageRegularShifts)), config);
-    assert.equal(calls[0][0], "get_consultation_stage_shifts");
 });
 
 /* ===================== v2.1: часове, класове, учители ===================== */
@@ -272,29 +264,10 @@ test("1-3 (SQL, статична проверка): слотът е (ден, с�
     assert.ok(/p_hour not between 1 and 7/.test(code));
 });
 
-test("v2.6 миграцията пази независимите клетки и проверява смяната на етапа в RPC", () => {
+test("никоя миграция след v2.3 не връща физическия слот; последната дефиниция на _save_consultation е v2.3", () => {
     const dir = __dirname + "/../supabase/migrations/";
     const files = fs.readdirSync(dir).sort();
-    assert.equal(files[files.length - 1], "20261009000000_stage_consultation_shifts.sql");
-    const sql = fs.readFileSync(dir + files[files.length - 1], "utf8").replace(/--[^\n]*/g, "");
-    assert.match(sql, /values \('gymnasium', 1\), \('progymnasium', 2\)/);
-    assert.match(sql, /v_stage_count > 1/);
-    assert.match(sql, /v_expected_shift := 3 - v_regular_shift/);
-    assert.match(sql, /if p_shift <> v_expected_shift then/);
-    assert.match(sql, /o\.shift = p_shift and o\.hour = p_hour/);
-    assert.doesNotMatch(sql, /slot_of|v_slot|physical/i);
-});
-
-test("v2.6 има директни RPC проверки за двете настройки, отказите и независимите клетки", () => {
-    const sql = fs.readFileSync(__dirname + "/../supabase/tests/v2_6_checks.sql", "utf8");
-    assert.match(sql, /public\.save_consultation/);
-    assert.match(sql, /Гимназия: II\/1 е допустима/);
-    assert.match(sql, /Прогимназия: I\/7 е допустима/);
-    assert.match(sql, /Гимназия: I смяна се отказва/);
-    assert.match(sql, /Прогимназия: II смяна се отказва/);
-    assert.match(sql, /Смесени етапи се отказват/);
-    assert.match(sql, /Обратна конфигурация: гимназия II, прогимназия I/);
-    assert.match(sql, /rollback;/i);
+    assert.equal(files[files.length - 1], "20261008000000_independent_shifts.sql");
 });
 
 /* ===================== v2.4: свързани смени, конфликти при попълване ===================== */
@@ -304,22 +277,6 @@ test("getOppositeShift: I <-> II", () => {
     assert.equal(L.getOppositeShift(2), 1);
     assert.equal(L.getOppositeShift("1"), 2);
     assert.equal(L.getOppositeShift(L.getOppositeShift(1)), 1);
-});
-
-test("v2.6: смяната за консултации се извежда от редовната смяна на етапа", () => {
-    const config = { gymnasium: 1, progymnasium: 2 };
-    assert.equal(L.consultationShiftForStage("gymnasium", config), 2);
-    assert.equal(L.consultationShiftForStage("progymnasium", config), 1);
-    assert.equal(L.consultationShiftForStage("gymnasium", { gymnasium: 2, progymnasium: 1 }), 1);
-    assert.equal(L.consultationShiftForStage("progymnasium", { gymnasium: 2, progymnasium: 1 }), 2);
-    assert.deepEqual(L.evaluateStageShift(["8А"], 2, config),
-        { ok: true, reason: "ok", stage: "gymnasium", expectedShift: 2 });
-    assert.equal(L.evaluateStageShift(["8А"], 1, config).reason, "wrong_shift");
-    assert.equal(L.evaluateStageShift(["5А"], 1, config).ok, true);
-    assert.equal(L.evaluateStageShift(["5А"], 2, config).reason, "wrong_shift");
-    assert.equal(L.evaluateStageShift(["5А", "10А"], 1, config).reason, "mixed_stages");
-    assert.equal(L.evaluateStageShift(["4А"], 1, config).reason, "unknown_stage");
-    assert.equal(L.evaluateStageShift(["8А"], 2, {}).reason, "missing_config");
 });
 
 const rec = (id, teacherId, day, shift, hour, subject, classes, location = "", teacher = "Иван Иванов") =>
@@ -370,35 +327,41 @@ test("16: проверката се променя с часа, дните и п
     assert.equal(L.summarizeSelection(at({ hour: 5 }))[0].text, "✓ Няма конфликти.");
 });
 
-test("18: слот = ден + смяна + час; I/7 и II/1 са независими за валидни етапи", () => {
-    const records = [rec(1, "t1", "Понеделник", 1, 7, "Математика", ["5А"])];     // прогимназия, I/7
-    // Гимназията използва II/1; един учител, предмет и място могат да съвпадат.
-    assert.equal(L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Математика", shift: 2, hour: 1, classes: ["8А"] }).canSave, true);
-    // Същият учител в същата логическа клетка (I/7) е конфликт.
-    const sameCell = L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Физика", shift: 1, hour: 7, classes: ["5А"] });
+test("18: слот = ден + смяна + час; F: I/12:35 не блокира II/12:35 (клас и учител)", () => {
+    const records = [rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"])];     // гимназия, I смяна, 12:35
+    // прогимназия II смяна, 12:35 (друг клас)
+    assert.equal(L.evaluateSelection(records, { ...base, shift: 2, hour: 1, classes: ["5А"] }).canSave, true);
+    // същият клас в другата смяна
+    assert.equal(L.evaluateSelection(records, { ...base, shift: 2, hour: 1, classes: ["8А"] }).canSave, true);
+    // същият учител, същият предмет, същите класове, другата смяна – разрешено
+    const same = L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Математика", shift: 2, hour: 1, classes: ["8А"] });
+    assert.equal(same.teacherConflict, null);
+    assert.equal(same.canSave, true);
+    // но в същата клетка (I/7) – конфликт и на клас, и на учител
+    const sameCell = L.evaluateSelection(records, { ...base, teacherId: "t1", subject: "Физика", shift: 1, hour: 7, classes: ["8А"] });
     assert.ok(sameCell.teacherConflict);
     assert.equal(sameCell.canSave, false);
-    // И обратно: II/1 не блокира I/7 за клас от прогимназията.
+    // и обратно: II/1 не блокира I/7
     const rev = [rec(2, "t1", "Понеделник", 2, 1, "Математика", ["8А"])];
-    assert.equal(L.evaluateSelection(rev, { ...base, teacherId: "t1", shift: 1, hour: 7, classes: ["5А"] }).canSave, true);
+    assert.equal(L.evaluateSelection(rev, { ...base, teacherId: "t1", shift: 1, hour: 7, classes: ["8А"] }).canSave, true);
 });
 
 test("19: паралелни групи – само в рамките на клетката", () => {
     const groups = ["ИТ"];
-    const g = (id, shift, hour, loc, cls = "9А") => rec(id, "t" + id, "Вторник", shift, hour, "ИТ", [cls], loc);
-    const p = { day: "Вторник", shift: 2, hour: 3, subject: "ИТ", location: "К2", teacherId: "t9", groupSubjects: groups, classes: ["9А"] };
+    const g = (id, shift, hour, loc) => rec(id, "t" + id, "Вторник", shift, hour, "ИТ", ["9А"], loc);
+    const p = { day: "Вторник", shift: 1, hour: 3, subject: "ИТ", location: "К2", teacherId: "t9", groupSubjects: groups, classes: ["9А"] };
     // една група с различно място – позволено
-    assert.equal(L.evaluateSelection([g(1, 2, 3, "К1")], p).canSave, true);
+    assert.equal(L.evaluateSelection([g(1, 1, 3, "К1")], p).canSave, true);
     // същото място – конфликт
-    const loc = L.evaluateSelection([g(1, 2, 3, "К2")], p);
+    const loc = L.evaluateSelection([g(1, 1, 3, "К2")], p);
     assert.equal(loc.canSave, false);
     assert.equal(loc.conflicts["9А"].type, "same_location");
     // две групи вече – пълно
-    assert.equal(L.evaluateSelection([g(1, 2, 3, "К1"), g(2, 2, 3, "К3")], p).conflicts["9А"].type, "groups_full");
-    // 12:35 I/7 за 5А е отделна клетка от II/1 за 9А.
-    assert.equal(L.evaluateSelection([g(1, 1, 7, "К2", "5А"), g(2, 1, 7, "К3", "5А")], { ...p, shift: 2, hour: 1 }).canSave, true);
+    assert.equal(L.evaluateSelection([g(1, 1, 3, "К1"), g(2, 1, 3, "К3")], p).conflicts["9А"].type, "groups_full");
+    // група в друга смяна/час не влияе
+    assert.equal(L.evaluateSelection([g(1, 2, 1, "К2"), g(2, 2, 1, "К3")], p).canSave, true);
     // различен предмет в клетката – зает
-    assert.equal(L.evaluateSelection([rec(5, "t5", "Вторник", 2, 3, "Физика", ["9А"], "К1")], p).conflicts["9А"].type, "occupied");
+    assert.equal(L.evaluateSelection([rec(5, "t5", "Вторник", 1, 3, "Физика", ["9А"], "К1")], p).conflicts["9А"].type, "occupied");
     // групов предмет изисква място
     const noLoc = L.evaluateSelection([], { ...p, location: "" });
     assert.equal(noLoc.needsLocation, true);
@@ -421,14 +384,10 @@ test("етапи на консултация и подредба по време
     assert.deepEqual(sorted.map(r => r.id), ["4", "3", "2", "1"]);
 });
 
-test("v2.6: frontend използва централната настройка, а server-side RPC остава авторитетна", () => {
+test("v2.4: сървърната валидация не е променена (няма нова миграция) и UX проверката е само огледало", () => {
     const dir = __dirname + "/../supabase/migrations/";
-    assert.equal(fs.readdirSync(dir).sort().pop(), "20261009000000_stage_consultation_shifts.sql");
+    assert.equal(fs.readdirSync(dir).sort().pop(), "20261008000000_independent_shifts.sql");
     const app = fs.readFileSync(__dirname + "/../js/app.js", "utf8");
-    const storage = fs.readFileSync(__dirname + "/../js/storage.js", "utf8");
     assert.ok(/storage\.(add|update)\(/.test(app));                 // записът продължава през RPC
     assert.ok(/evaluateSelection\(storage\.getAll\(\), ctx\.params\)/.test(app));
-    assert.ok(/evaluateStageShift\(ctx\.params\.classes, shift, storage\._stageRegularShifts\)/.test(app));
-    assert.ok(/get_consultation_stage_shifts/.test(storage));
-    assert.ok(/disabled/.test(app.slice(app.indexOf("function applyStageConsultationShift"), app.indexOf("function updateViewIndicator"))));
 });

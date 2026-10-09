@@ -142,26 +142,6 @@
      * ------------------------------------------------------------------ */
     const getOppositeShift = shift => Number(shift) === 1 ? 2 : 1;
 
-    // regularShifts идва от единствената училищна настройка в базата данни.
-    // Консултациите са в смяната срещу редовната учебна смяна.
-    function consultationShiftForStage(stage, regularShifts) {
-        const regular = Number(regularShifts && regularShifts[stage]);
-        return (stage === "gymnasium" || stage === "progymnasium") && (regular === 1 || regular === 2)
-            ? getOppositeShift(regular) : null;
-    }
-
-    function evaluateStageShift(classes, shift, regularShifts) {
-        const names = [...new Set((classes || []).map(v => String(v).trim()).filter(Boolean))];
-        if (!names.length) return { ok: false, reason: "no_classes", stage: null, expectedShift: null };
-        const stages = [...new Set(names.map(stageOfClass))];
-        if (stages.includes(null)) return { ok: false, reason: "unknown_stage", stage: null, expectedShift: null };
-        if (stages.length !== 1) return { ok: false, reason: "mixed_stages", stage: null, expectedShift: null };
-        const stage = stages[0];
-        const expectedShift = consultationShiftForStage(stage, regularShifts);
-        if (!expectedShift) return { ok: false, reason: "missing_config", stage, expectedShift: null };
-        return { ok: Number(shift) === expectedShift, reason: Number(shift) === expectedShift ? "ok" : "wrong_shift", stage, expectedShift };
-    }
-
     // Етапи на консултация според класовете ѝ: "Прогимназиален / Гимназиален"
     function stageNamesOfRecord(record) {
         const keys = new Set(normalizeClasses(record).map(stageOfClass).filter(Boolean));
@@ -274,8 +254,7 @@
                   TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition,
                   positionLabel, shiftText, normalizeParallel, buildClassName,
                   STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords,
-                  getOppositeShift, consultationShiftForStage, evaluateStageShift,
-                  stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,
+                  getOppositeShift, stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,
                   findTeacherConflict, evaluateSelection, summarizeSelection, describeClassConflict, classMarkers };
     if (typeof module !== "undefined" && module.exports) module.exports = api;
     else Object.assign(root, api);

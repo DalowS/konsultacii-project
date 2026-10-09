@@ -10,20 +10,12 @@ const storage = {
     _classes: [],          // [{id,name}]
     _groupSubjects: [],    // [{id,subject,enabled}]
     _teachers: [],         // [{id,name,role}]
-    _stageRegularShifts: null,
 
     getAll() { return this._cache; },
     getClassNames() { return this._classes.map(c => c.name); },
     getClasses() { return this._classes; },
     getGroupSubjectRows() { return this._groupSubjects; },
     getTeachers() { return this._teachers; },
-
-    async loadStageRegularShifts() {
-        const { data, error } = await sb.rpc("get_consultation_stage_shifts");
-        if (error) throw error;
-        this._stageRegularShifts = data;
-        return data;
-    },
 
     async refresh() {
         const [consultations, classes, groups, teachers] = await Promise.all([
