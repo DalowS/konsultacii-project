@@ -7,14 +7,12 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-</head>
-<body>
 
 <header class="header">
     <div class="header-inner">
         <div>
             <h1>График за консултации</h1>
-            <small>Версия 2.5 • Споделена база данни</small>
+            <small>Версия 2.6 • Споделена база данни (Supabase)</small>
         </div>
         <div id="headerUser"></div>
     </div>
@@ -78,7 +76,7 @@
 
                 <div class="form-group">
                     <label for="shiftSelect">Смяна</label>
-                    <select id="shiftSelect" onchange="renderSchedule()">
+                    <select id="shiftSelect" onchange="renderSchedule()" disabled>
                         <option value="1">I смяна</option>
                         <option value="2">II смяна</option>
                     </select>

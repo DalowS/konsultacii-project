@@ -12,7 +12,7 @@
     }
 
     .header {
-        background: #002966;
+        background: #1f4e79;
         color: white;
         padding: 18px 24px;
         box-shadow: 0 2px 8px rgba(0,0,0,.12);
@@ -88,12 +88,12 @@
     }
 
     .btn-primary {
-        background: #2f73da;
+        background: #1f4e79;
         color: white;
     }
 
     .btn-primary:hover {
-        background: #206cb3;
+        background: #163a5b;
     }
 
     .btn-secondary {

@@ -25,14 +25,22 @@ function getCellRecords(className, shift, day, hour) {
 }
 
 function renderSchedule() {
+    const allowedShift = consultationShiftForStage(currentStage, storage._stageRegularShifts);
+    const shiftControl = document.getElementById("shiftSelect");
+    shiftControl.disabled = true;
+    if (allowedShift) shiftControl.value = String(allowedShift);
     updateViewIndicator();
     const className = document.getElementById("classSelect").value;
-    const shift = Number(document.getElementById("shiftSelect").value);
+    const shift = allowedShift;
 
     document.getElementById("scheduleTitle").textContent =
         `${className} • ${shift === 1 ? "I смяна" : "II смяна"}`;
 
     const table = document.getElementById("scheduleTable");
+    if (!allowedShift) {
+        table.innerHTML = `<tbody><tr><td style="padding:20px;">Не може да се зареди настройката за редовните смени.</td></tr></tbody>`;
+        return;
+    }
     if (!className) {
         table.innerHTML = `<tbody><tr><td style="padding:20px;">Няма класове за този етап.</td></tr></tbody>`;
         return;
@@ -97,6 +105,11 @@ normalizeSubject(r.subject) === normalizeSubject(records[0].subject)
 }
 
 function openAddModal(className, shift, day, hour) {
+    const stageCheck = evaluateStageShift([className], shift, storage._stageRegularShifts);
+    if (stageOfClass(className) !== currentStage || !stageCheck.ok) {
+        alert(stageShiftMessage(stageCheck));
+        return;
+    }
     const records = getCellRecords(className, shift, day, hour);
 
     if (records.length > 0) {
@@ -147,7 +160,7 @@ function editConsultation(id) {
     setModalSlot(record.shift, record.hour);
     document.getElementById("modalSubject").value = record.subject || "";
     document.getElementById("modalLocation").value = record.location || "";
-    buildExtraClasses();
+    buildExtraClasses([...stageClasses(), ...normalizeClasses(record)]);
     const cls=normalizeClasses(record);
     document.querySelectorAll(".extraClass").forEach(c=>c.checked=cls.includes(c.value));
     document.getElementById("modalId").value = record.id;
@@ -317,7 +330,7 @@ function adminEdit(id) {
     setModalSlot(record.shift, record.hour);
     document.getElementById("modalSubject").value = record.subject || "";
     document.getElementById("modalLocation").value = record.location || "";
-    buildExtraClasses();
+    buildExtraClasses([...stageClasses(), ...normalizeClasses(record)]);
     const cls=normalizeClasses(record);
     document.querySelectorAll(".extraClass").forEach(c=>c.checked=cls.includes(c.value));
     document.getElementById("modalId").value = record.id;
@@ -458,12 +471,13 @@ async function handleSession(session) {
     showScreen("loadingScreen");
     try {
         const profile = await auth.loadProfile(session.user);
-        await storage.refresh();
+        await Promise.all([storage.refresh(), storage.loadStageRegularShifts()]);
         currentUser = profile;
         isAdmin = profile.role === "admin";
         currentTeacher = profile.name;
         CONFIG.classes = storage.getClassNames();
         loadStagePreference();
+        applyStageConsultationShift();
         populateClasses();
         startRealtime();
         showTeacherScreen();
@@ -482,6 +496,7 @@ function teardown() {
     isAdmin = false;
     currentTeacher = "";
     storage._cache = [];
+    storage._stageRegularShifts = null;
     document.getElementById("headerUser").textContent = "";
     document.getElementById("authPassword").value = "";
 }
@@ -556,6 +571,7 @@ async function logout() {
 function showTeacherScreen() {
     showScreen("teacherScreen");
     renderStageTabs();
+    applyStageConsultationShift();
     document.getElementById("currentTeacher").textContent = currentTeacher;
     document.getElementById("headerUser").textContent =
         currentTeacher + (isAdmin ? " • Администратор" : "");
@@ -671,27 +687,39 @@ function renderStageTabs() {
 
 function setStage(stage) {
     if (!STAGE_ORDER.includes(stage) || stage === currentStage) return;
-    const shiftSelect = document.getElementById("shiftSelect");
-    const previousShift = Number(shiftSelect.value) || 1;
+    const previousShift = consultationShiftForStage(currentStage, storage._stageRegularShifts);
+    const newShift = consultationShiftForStage(stage, storage._stageRegularShifts);
+    if (!newShift) {
+        alert("Не може да се зареди настройката за редовните смени.");
+        return;
+    }
     currentStage = stage;
     try { localStorage.setItem(STAGE_PREF_KEY, stage); } catch (e) { /* не е критично */ }
 
-    // Етапите са в противоположни смени (гимназия I <-> прогимназия II). Обръщаме смяната само
-    // при смяна на етапа – не при смяна на клас, филтър и т.н.
-    const newShift = getOppositeShift(previousShift);
-    shiftSelect.value = String(newShift);
+    // Настройката задава редовните смени; противоположните стойности водят до I ↔ II
+    // при смяна на етапа, без втори независим източник на истина.
+    applyStageConsultationShift();
 
     populateClasses();
     renderStageTabs();
     renderViews();
-    setViewNote(`Смяната е сменена автоматично: ${shiftText(previousShift)} → ${shiftText(newShift)} смяна.`);
+    setViewNote(`Консултационната смяна е сменена автоматично: ${shiftText(previousShift)} → ${shiftText(newShift)} смяна.`);
+}
+
+function applyStageConsultationShift() {
+    const shift = consultationShiftForStage(currentStage, storage._stageRegularShifts);
+    const select = document.getElementById("shiftSelect");
+    if (!select) return shift;
+    select.disabled = true;
+    if (shift) select.value = String(shift);
+    return shift;
 }
 
 // Ясен индикатор: "Прогимназиален етап · II смяна" (+ бележка след автоматична смяна)
 function updateViewIndicator() {
     const el = document.getElementById("viewIndicator");
     if (!el) return;
-    const shift = Number(document.getElementById("shiftSelect").value) || 1;
+    const shift = consultationShiftForStage(currentStage, storage._stageRegularShifts);
     el.innerHTML = `<strong>${escapeHtml(STAGES[currentStage].label)} · ${shiftText(shift)} смяна</strong>` +
         (viewNote ? `<span class="view-note">${escapeHtml(viewNote)}</span>` : "");
     el.classList.toggle("changed", !!viewNote);
@@ -723,11 +751,11 @@ function populateClasses() {
     if (stageClasses().includes(current)) select.value = current;
 }
 
-function buildExtraClasses() {
+function buildExtraClasses(classNames = stageClasses()) {
     const box = document.getElementById("extraClassesBox");
     if (!box) return;
     box.innerHTML = "";
-    stageClasses().forEach(c => {
+    [...new Set(classNames)].forEach(c => {
         const lbl = document.createElement("label");
         lbl.innerHTML = `<input type="checkbox" class="extraClass" value="${escapeHtml(c)}"> ${escapeHtml(c)} <span class="class-state" data-class="${escapeHtml(c)}"></span>`;
         lbl.addEventListener("change", refreshConflictUI);
@@ -844,6 +872,13 @@ async function saveConsultation() {
 
     if (!subject) { alert("Моля, въведете предмет."); return; }
     if (!isValidPosition(shift, hour)) { alert("Невалиден час. Този запис е със стара стойност на часа – изтрийте го и го създайте отново."); return; }
+
+    const stageCheck = evaluateStageShift(ctx.params.classes, shift, storage._stageRegularShifts);
+    if (!stageCheck.ok) {
+        refreshConflictUI();
+        alert(stageShiftMessage(stageCheck));
+        return;
+    }
 
     // Бърза проверка върху заредените данни; при частичен конфликт се записват само свободните класове.
     const ev = evaluateSelection(storage.getAll(), ctx.params);
@@ -1159,8 +1194,6 @@ function restoreFocus() {
 function currentModalParams() {
     const effectiveId = adminEditingId || document.getElementById("modalId").value;
     const original = effectiveId ? storage.getAll().find(r => r.id === effectiveId) : null;
-    // Класове на другия етап при редакция не се губят (те не се виждат в списъка).
-    const outside = original ? normalizeClasses(original).filter(c => stageOfClass(c) !== currentStage) : [];
     const checked = [...document.querySelectorAll(".extraClass:checked")].map(x => x.value);
     return {
         effectiveId, original,
@@ -1170,7 +1203,7 @@ function currentModalParams() {
             hour: modalSlot.hour,
             subject: document.getElementById("modalSubject").value.trim(),
             location: document.getElementById("modalLocation").value.trim(),
-            classes: [...new Set([...checked, ...outside])],
+            classes: [...new Set(checked)],
             excludeId: effectiveId || "",
             teacherId: original ? original.teacherId : (currentUser && currentUser.id),
             groupSubjects: getGroupSubjects()
@@ -1189,7 +1222,9 @@ function refreshConflictUI() {
     const { params } = currentModalParams();
     const ev = evaluateSelection(records, params);
 
+    const stageCheck = evaluateStageShift(params.classes, params.shift, storage._stageRegularShifts);
     const messages = summarizeSelection(ev);
+    if (!stageCheck.ok) messages.push({ level: "error", text: stageShiftMessage(stageCheck) });
     const level = messages.some(m => m.level === "error") ? "error" : messages.some(m => m.level === "warn") ? "warn" : "ok";
     const summary = document.getElementById("conflictSummary");
     summary.className = `conflict-summary ${level}`;
@@ -1198,7 +1233,7 @@ function refreshConflictUI() {
     let details = "";
     if (ev.teacherConflict) {
         const r = ev.teacherConflict;
-        details += conflictItemHtml({ title: "⚠️ Вече имате консултация в този час.",
+        details += conflictItemHtml({ title: "⚠️ Учителят вече има консултация в този час.",
             details: [["Предмет", r.subject], ["Класове", r.classes.join(", ")]].concat(r.location ? [["Място", r.location]] : []) });
     }
     ev.blocked.forEach(c => { details += conflictItemHtml(describeClassConflict(c, ev.conflicts[c])); });
@@ -1213,8 +1248,8 @@ function refreshConflictUI() {
 
     const btn = document.getElementById("modalSaveBtn");
     if (btn && !saving) {
-        btn.disabled = !ev.canSave;
-        btn.setAttribute("aria-disabled", String(!ev.canSave));
+        btn.disabled = !ev.canSave || !stageCheck.ok;
+        btn.setAttribute("aria-disabled", String(!ev.canSave || !stageCheck.ok));
     }
 }
 
@@ -1242,6 +1277,18 @@ function refreshAdmin() {
     ==========================================================
 */
 let modalSlot = { shift: 1, hour: 1 };
+
+function stageShiftMessage(check) {
+    if (!check || check.reason === "no_classes") return "Изберете клас от един етап.";
+    if (check.reason === "unknown_stage") return "Класът не принадлежи към Гимназиален или Прогимназиален етап.";
+    if (check.reason === "mixed_stages") return "Една консултация може да включва класове само от един етап. Премахнете отметките от другия етап.";
+    if (check.reason === "missing_config") return "Не може да се зареди настройката за редовните смени.";
+    if (check.reason === "wrong_shift") {
+        const stage = STAGES[check.stage]?.label || "Избрания етап";
+        return `${stage}: консултациите са само в ${shiftText(check.expectedShift)} смяна.`;
+    }
+    return "Изберете допустима смяна за етапа.";
+}
 
 function setModalSlot(shift, hour) {
     modalSlot = { shift: Number(shift), hour: Number(hour) };
