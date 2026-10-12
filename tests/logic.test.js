@@ -103,10 +103,11 @@ test("13 реални интервала, 7 позиции на смяна", () 
     assert.deepEqual(L.POSITIONS, [1, 2, 3, 4, 5, 6, 7]);
     const shift1 = L.POSITIONS.map(h => L.positionLabel(1, h));
     const shift2 = L.POSITIONS.map(h => L.positionLabel(2, h));
-    assert.equal(shift1[0], "7:30 - 8:10");
-    assert.equal(shift1[6], "12:35 - 13:15");
-    assert.equal(shift2[0], "12:35 - 13:15");
-    assert.equal(shift2[6], "17:50 - 18:30");
+    // избрана I смяна -> часовете на II (12:35-18:30); избрана II смяна -> часовете на I (7:30-13:15)
+    assert.equal(shift1[0], "12:35 - 13:15");
+    assert.equal(shift1[6], "17:50 - 18:30");
+    assert.equal(shift2[0], "7:30 - 8:10");
+    assert.equal(shift2[6], "12:35 - 13:15");
 });
 
 
@@ -221,19 +222,19 @@ test("статични проверки на frontend-а", () => {
 /* ===================== v2.3: независими смени, печат ===================== */
 
 test("12:35 - 13:15 е само етикет: две независими позиции, без концепция за физически слот", () => {
-    assert.equal(L.positionLabel(1, 7), "12:35 - 13:15");
-    assert.equal(L.positionLabel(2, 1), "12:35 - 13:15");
+    assert.equal(L.positionLabel(1, 1), "12:35 - 13:15");
+    assert.equal(L.positionLabel(2, 7), "12:35 - 13:15");
     for (const name of ["slotOf", "slotLabel", "canonicalPosition", "isSharedPosition", "sameSlot", "recordInShift", "SHARED_SLOT"]) {
         assert.equal(L[name], undefined, `${name} не трябва да съществува`);
     }
     assert.ok(!/slotOf|slotLabel/.test(fs.readFileSync(__dirname + "/../js/logic.js", "utf8")));
 });
 
-test("4: всички часови интервали са непроменени (I и II смяна)", () => {
+test("4: интервалите са същите, но избраната смяна показва ПРОТИВОПОЛОЖНИЯ диапазон", () => {
     const shift1 = ["7:30 - 8:10", "8:20 - 9:00", "9:10 - 9:50", "10:10 - 10:50", "11:00 - 11:40", "11:50 - 12:30", "12:35 - 13:15"];
     const shift2 = ["12:35 - 13:15", "13:30 - 14:10", "14:20 - 15:00", "15:10 - 15:50", "16:10 - 16:50", "17:00 - 17:40", "17:50 - 18:30"];
-    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(1, h)), shift1);
-    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(2, h)), shift2);
+    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(1, h)), shift2);
+    assert.deepEqual(L.POSITIONS.map(h => L.positionLabel(2, h)), shift1);
     assert.equal(L.TIME_SLOTS.length, 13);
 });
 
@@ -300,7 +301,7 @@ test("15: конфликтът е конкретен (предмет, ден, с
     const d = L.describeClassConflict("10В", ev.conflicts["10В"]);
     assert.equal(d.title, "⚠️ 10В вече има консултация.");
     assert.deepEqual(d.details, [["Предмет", "Математика"], ["Ден", "Понеделник"], ["Смяна", "I"],
-                                 ["Час", "10:10 - 10:50"], ["Учител", "Иван Иванов"]]);
+                                 ["Час", "15:10 - 15:50"], ["Учител", "Иван Иванов"]]);
 });
 
 test("20/21: два конфликтни класа (мн.ч.) и всички класове в конфликт блокират записа", () => {
@@ -399,7 +400,7 @@ test("v2.6 тест 1: един учител – Пон/I/7 и Пон/II/1 бе�
     const ev = L.evaluateSelection([gym], p);
     assert.equal(ev.teacherConflict, null);
     assert.equal(ev.canSave, true);
-    assert.equal(L.positionLabel(1, 7), L.positionLabel(2, 1)); // само етикетът съвпада
+    assert.equal(L.positionLabel(1, 1), L.positionLabel(2, 7)); // само етикетът съвпада (12:35)
 });
 
 test("v2.6 тест 2: един предмет в двата слота", () => {

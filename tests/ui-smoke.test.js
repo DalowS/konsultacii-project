@@ -68,8 +68,9 @@ test("графикът: 7 реда за всяка смяна с правилн�
     const s1 = rows(setSchedule(t, "8А", 1));
     const s2 = rows(setSchedule(t, "8А", 2));
     assert.equal(s1.length, 7); assert.equal(s2.length, 7);
-    assert.match(s1[0], /7:30 - 8:10/);   assert.match(s1[6], /12:35 - 13:15/);
-    assert.match(s2[0], /12:35 - 13:15/); assert.match(s2[6], /17:50 - 18:30/);
+    // избрана I смяна -> 12:35-18:30; избрана II смяна -> 7:30-13:15
+    assert.match(s1[0], /12:35 - 13:15/); assert.match(s1[6], /17:50 - 18:30/);
+    assert.match(s2[0], /7:30 - 8:10/);   assert.match(s2[6], /12:35 - 13:15/);
 });
 
 test("13: I смяна/12:35 и II смяна/12:35 са отделни клетки", () => {
@@ -104,11 +105,11 @@ test("15: консултация във II смяна/12:35 НЕ се копир
 test("модал: смяна и час за двете клетки на 12:35", () => {
     const t = setup();
     t.run(`openAddModal("8А", 2, "Петък", 1)`);
-    assert.equal(t.elements.modalHour.value, "12:35 - 13:15");
+    assert.equal(t.elements.modalHour.value, "7:30 - 8:10");
     assert.equal(t.elements.modalShift.value, "II смяна");
     assert.deepEqual(JSON.parse(JSON.stringify(t.run("modalSlot"))), { shift: 2, hour: 1 });
     t.run(`openAddModal("8А", 1, "Петък", 7)`);
-    assert.equal(t.elements.modalHour.value, "12:35 - 13:15");
+    assert.equal(t.elements.modalHour.value, "17:50 - 18:30");
     assert.equal(t.elements.modalShift.value, "I смяна");
     assert.deepEqual(JSON.parse(JSON.stringify(t.run("modalSlot"))), { shift: 1, hour: 7 });
 });
@@ -284,7 +285,7 @@ test("клиентът не блокира II/1, когато I/7 е заета 
     t.run(`openAddModal("8А", 2, "Понеделник", 1)`);
     assert.equal(t.alerts.length, before, "без alert за заетост");
     assert.deepEqual(JSON.parse(JSON.stringify(t.run("modalSlot"))), { shift: 2, hour: 1 });
-    assert.equal(t.elements.modalHour.value, "12:35 - 13:15");
+    assert.equal(t.elements.modalHour.value, "7:30 - 8:10");
 });
 
 test("печат: заглавието е центрирано спрямо страницата и таблицата (общ контейнер, една ширина)", () => {
@@ -347,7 +348,7 @@ test("графикът след превключване показва нова
     t.run(`document.getElementById("classSelect").value = "5А"; setStage("progymnasium")`);
     t.run(`document.getElementById("classSelect").value = "5А"; renderSchedule()`);
     assert.match(t.elements.scheduleTitle.textContent, /5А • II смяна/);
-    assert.match(rows(t.elements.scheduleTable.innerHTML)[0], /12:35 - 13:15/);
+    assert.match(rows(t.elements.scheduleTable.innerHTML)[0], /7:30 - 8:10/);   // II смяна -> часовете на I
 });
 
 test("E: смяната НЕ се променя при смяна на клас, час (модал), филтри, презареждане", () => {
@@ -382,7 +383,7 @@ test("13/14 (UI): 8А заето в I/7 – при избор на 8А,8Б се 
     assert.match(box, /Предмет: <strong>Математика<\/strong>/);
     assert.match(box, /Ден: <strong>Понеделник<\/strong>/);
     assert.match(box, /Смяна: <strong>I<\/strong>/);
-    assert.match(box, /Час: <strong>12:35 - 13:15<\/strong>/);
+    assert.match(box, /Час: <strong>17:50 - 18:30<\/strong>/);
     assert.match(box, /Учител: <strong>Учител<\/strong>/);
     assert.match(t.elements.conflictSummary.innerHTML, /1 избран клас има конфликт\. Можете да продължите/);
     assert.match(t.elements.conflictSummary.className, /warn/);
@@ -721,12 +722,12 @@ test("v2.7 т.1-3: потребителят избира I и II смяна въ
         t.run(`currentStage = "${stage}"; populateClasses();`);
         const r1 = rows(setSchedule(t, cls, 1));
         assert.equal(shiftNow(t), "1");
-        assert.match(r1[0], /7:30 - 8:10/); assert.match(r1[6], /12:35 - 13:15/);
+        assert.match(r1[0], /12:35 - 13:15/); assert.match(r1[6], /17:50 - 18:30/);
         const r2 = rows(setSchedule(t, cls, 2));
         assert.equal(shiftNow(t), "2");
-        assert.match(r2[0], /12:35 - 13:15/); assert.match(r2[6], /17:50 - 18:30/);
+        assert.match(r2[0], /7:30 - 8:10/); assert.match(r2[6], /12:35 - 13:15/);
         const r1b = rows(setSchedule(t, cls, 1));                 // и обратно – не е „залепнала“
-        assert.match(r1b[0], /7:30 - 8:10/);
+        assert.match(r1b[0], /12:35 - 13:15/);
         assert.match(t.elements.viewIndicator.innerHTML, /I смяна/);
     }
 });
@@ -749,7 +750,7 @@ test("v2.7 т.6: след презареждане (запомнен етап) �
     for (const s of [2, 1, 2]) {
         const r = rows(setSchedule(t, "5А", s));
         assert.equal(shiftNow(t), String(s));
-        assert.match(r[0], s === 1 ? /7:30 - 8:10/ : /12:35 - 13:15/);
+        assert.match(r[0], s === 1 ? /12:35 - 13:15/ : /7:30 - 8:10/);
     }
 });
 
@@ -758,4 +759,84 @@ test("v2.7 т.7: I/7 и II/1 са независими клетки в UI (ко�
     const r1 = rows(setSchedule(t, "8А", 1)), r2 = rows(setSchedule(t, "8А", 2));
     assert.match(r1[6], /Математика/);          // I/7 понеделник
     assert.doesNotMatch(r2[0], /Математика/);   // II/1 празна
+});
+
+/* ===================== v2.8: избраната смяна показва интервалите на ПРОТИВОПОЛОЖНАТА ===================== */
+const range = html => { const r = rows(html); return [r[0].match(/\d+:\d+ - \d+:\d+/)[0], r[6].match(/\d+:\d+ - \d+:\d+/)[0]]; };
+
+test("v2.8: избрана I смяна -> 12:35–18:30; избрана II смяна -> 7:30–13:15", () => {
+    const t = setup();
+    assert.deepEqual(range(setSchedule(t, "8А", 1)), ["12:35 - 13:15", "17:50 - 18:30"]);
+    assert.deepEqual(range(setSchedule(t, "8А", 2)), ["7:30 - 8:10", "12:35 - 13:15"]);
+    assert.equal(rows(setSchedule(t, "8А", 1)).length, 7);
+});
+
+test("v2.8: ръчна промяна I -> II и II -> I веднага сменя часовете; изборът остава свободен", () => {
+    const t = setup();
+    t.run(`document.getElementById("classSelect").value = "8А"; document.getElementById("shiftSelect").value = "1"; renderSchedule()`);
+    assert.equal(range(t.elements.scheduleTable.innerHTML)[0], "12:35 - 13:15");
+    t.run(`document.getElementById("shiftSelect").value = "2"; renderSchedule()`);          // ръчно I -> II
+    assert.equal(shiftNow(t), "2");
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["7:30 - 8:10", "12:35 - 13:15"]);
+    t.run(`document.getElementById("shiftSelect").value = "1"; renderSchedule()`);          // ръчно II -> I
+    assert.equal(shiftNow(t), "1");
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["12:35 - 13:15", "17:50 - 18:30"]);
+});
+
+test("v2.8: примери 1-4 (етап + смяна -> диапазон)", () => {
+    const t = setup();
+    // 1: Прогимназиален, II смяна -> 07:30–13:15
+    flip(t, "progymnasium", 2); t.run("populateClasses()");
+    assert.deepEqual(range(setSchedule(t, "5А", 2)), ["7:30 - 8:10", "12:35 - 13:15"]);
+    // 2: към Гимназиален -> смяната II -> I, часове 12:35–18:30
+    t.run(`setStage("gymnasium")`);
+    assert.equal(shiftNow(t), "1");
+    t.run(`document.getElementById("classSelect").value = "8А"; renderSchedule()`);
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["12:35 - 13:15", "17:50 - 18:30"]);
+    // 3: Гимназиален, ръчно II -> остава II, 07:30–13:15
+    t.run(`document.getElementById("shiftSelect").value = "2"; renderSchedule()`);
+    assert.equal(shiftNow(t), "2");
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["7:30 - 8:10", "12:35 - 13:15"]);
+    // 4: Прогимназиален, ръчно I -> остава I, 12:35–18:30
+    t.run(`setStage("progymnasium")`);
+    assert.equal(shiftNow(t), "1");
+    t.run(`document.getElementById("classSelect").value = "5А"; document.getElementById("shiftSelect").value = "1"; renderSchedule()`);
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["12:35 - 13:15", "17:50 - 18:30"]);
+});
+
+test("v2.8: смяна на етап I -> II и II -> I обръща и смяната, и диапазона", () => {
+    const t = setup();
+    flip(t, "gymnasium", 1);
+    t.run(`setStage("progymnasium"); document.getElementById("classSelect").value = "5А"; renderSchedule()`);
+    assert.equal(shiftNow(t), "2");
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["7:30 - 8:10", "12:35 - 13:15"]);
+    t.run(`setStage("gymnasium"); document.getElementById("classSelect").value = "8А"; renderSchedule()`);
+    assert.equal(shiftNow(t), "1");
+    assert.deepEqual(range(t.elements.scheduleTable.innerHTML), ["12:35 - 13:15", "17:50 - 18:30"]);
+});
+
+test("v2.8: клетките са по избраната смяна (ключ day+shift+hour), не по показвания диапазон", () => {
+    const t = setup();
+    const r1 = rows(setSchedule(t, "8А", 1)), r2 = rows(setSchedule(t, "8А", 2));
+    // запис 1 е (Понеделник, shift 1, hour 7) -> показва се в 7-ия ред на ИЗБРАНА I смяна (17:50), не при II
+    assert.match(r1[6], /Математика/); assert.match(r1[6], /17:50 - 18:30/);
+    assert.doesNotMatch(r2.join(""), /Математика/);
+    // бутоните и формата носят реалната избрана смяна
+    assert.ok(r2[0].includes("openAddModal('8А', 2, 'Понеделник', 1)"));
+    t.run(`openAddModal("8А", 2, "Понеделник", 1)`);
+    assert.deepEqual(JSON.parse(JSON.stringify(t.run("modalSlot"))), { shift: 2, hour: 1 });
+    assert.equal(t.elements.modalShift.value, "II смяна");
+    assert.equal(t.elements.modalHour.value, "7:30 - 8:10");
+    // I/7 (17:50) и II/1 (7:30) остават независими: заетата I/7 не блокира II/1
+    assert.equal(t.run(`evaluateSelection(storage.getAll(), {day:"Понеделник",shift:2,hour:1,subject:"Математика",teacherId:"u-t",classes:["8А"],groupSubjects:[]}).canSave`), true);
+    assert.equal(t.run(`evaluateSelection(storage.getAll(), {day:"Понеделник",shift:1,hour:7,subject:"Физика",teacherId:"u-t",classes:["8А"],groupSubjects:[]}).canSave`), false);
+});
+
+test("v2.8 (статично): shiftSelect не е заключен; конфликтният код не ползва positionLabel/labelIndex", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    assert.doesNotMatch(html.match(/<select id="shiftSelect"[^>]*>/)[0], /disabled|readonly|hidden/i);
+    const logic = fs.readFileSync(path.join(__dirname, "..", "js", "logic.js"), "utf8");
+    const conflict = logic.slice(logic.indexOf("const sameCell"), logic.indexOf("function evaluateSelection"));
+    assert.doesNotMatch(conflict, /positionLabel|labelIndex|TIME_SLOTS/);
+    assert.match(conflict, /r\.day === p\.day && Number\(r\.shift\) === Number\(p\.shift\) && Number\(r\.hour\) === Number\(p\.hour\)/);
 });
