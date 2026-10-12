@@ -391,3 +391,55 @@ test("v2.4: сървърната валидация не е променена (
     assert.ok(/storage\.(add|update)\(/.test(app));                 // записът продължава през RPC
     assert.ok(/evaluateSelection\(storage\.getAll\(\), ctx\.params\)/.test(app));
 });
+
+/* ---- v2.6: логическият слот е само ден + смяна + час (12:35–13:15 е етикет) ---- */
+test("v2.6 тест 1: един учител – Пон/I/7 и Пон/II/1 без конфликт", () => {
+    const gym = rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"]);
+    const p = { day: "Понеделник", shift: 2, hour: 1, subject: "Математика", teacherId: "t1", classes: ["5А"], groupSubjects: [] };
+    const ev = L.evaluateSelection([gym], p);
+    assert.equal(ev.teacherConflict, null);
+    assert.equal(ev.canSave, true);
+    assert.equal(L.positionLabel(1, 7), L.positionLabel(2, 1)); // само етикетът съвпада
+});
+
+test("v2.6 тест 2: един предмет в двата слота", () => {
+    const gym = rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"], "12");
+    const ev = L.evaluateSelection([gym], { day: "Понеделник", shift: 2, hour: 1, subject: "Математика", location: "12", teacherId: "t2", classes: ["5А"], groupSubjects: [] });
+    assert.equal(ev.canSave, true);
+});
+
+test("v2.6 тест 3: един клас в двата слота", () => {
+    const gym = rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"]);
+    const ev = L.evaluateSelection([gym], { day: "Понеделник", shift: 2, hour: 1, subject: "Физика", teacherId: "t2", classes: ["8А"], groupSubjects: [] });
+    assert.deepEqual(ev.blocked, []);
+    assert.equal(ev.canSave, true);
+});
+
+test("v2.6 тест 4: групов предмет в I/7 не блокира същия в II/1 (дори 2 групи, също място)", () => {
+    const g = ["ИТ"];
+    const recs = [rec(1, "t1", "Понеделник", 1, 7, "ИТ", ["8А"], "К1"), rec(2, "t2", "Понеделник", 1, 7, "ИТ", ["8А"], "К2")];
+    const ev = L.evaluateSelection(recs, { day: "Понеделник", shift: 2, hour: 1, subject: "ИТ", location: "К1", teacherId: "t3", classes: ["8А"], groupSubjects: g });
+    assert.deepEqual(ev.blocked, []);
+    assert.equal(ev.canSave, true);
+});
+
+test("v2.6 тест 5: два записа в Пон/I/7 продължават да са конфликт", () => {
+    const a = rec(1, "t1", "Понеделник", 1, 7, "Математика", ["8А"]);
+    const p = { day: "Понеделник", shift: 1, hour: 7, subject: "Физика", teacherId: "t1", classes: ["8А"], groupSubjects: [] };
+    const ev = L.evaluateSelection([a], p);
+    assert.ok(ev.teacherConflict);
+    assert.equal(ev.conflicts["8А"].type, "occupied");
+    assert.equal(ev.canSave, false);
+    // групите в същата клетка: пълни при 2
+    const g = ["ИТ"];
+    const full = [rec(1, "t1", "Понеделник", 1, 7, "ИТ", ["8А"], "К1"), rec(2, "t2", "Понеделник", 1, 7, "ИТ", ["8А"], "К2")];
+    assert.equal(L.evaluateSelection(full, { ...p, subject: "ИТ", location: "К3", teacherId: "t3", groupSubjects: g }).conflicts["8А"].type, "groups_full");
+});
+
+test("v2.6 тест 6: обратна посока – първо Прогимн. II/1, после Гимн. I/7", () => {
+    const pro = rec(1, "t1", "Понеделник", 2, 1, "Математика", ["5А"], "12");
+    const ev = L.evaluateSelection([pro], { day: "Понеделник", shift: 1, hour: 7, subject: "Математика", location: "12", teacherId: "t1", classes: ["8А", "5А"], groupSubjects: [] });
+    assert.equal(ev.teacherConflict, null);
+    assert.deepEqual(ev.blocked, []);
+    assert.equal(ev.canSave, true);
+});

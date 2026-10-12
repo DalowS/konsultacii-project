@@ -702,3 +702,60 @@ test("Печат: сортирането и всички консултации 
     assert.ok(order.every(i => i > 0));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
 });
+
+/* ===================== v2.7: изборът на смяна е свободен ===================== */
+test("v2.7 т.1/2 (статично): #shiftSelect има I и II, не е disabled/readonly, няма код който го заключва", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    const sel = html.match(/<select id="shiftSelect"[^>]*>[\s\S]*?<\/select>/)[0];
+    assert.match(sel, /<option value="1">I смяна<\/option>/);
+    assert.match(sel, /<option value="2">II смяна<\/option>/);
+    assert.doesNotMatch(sel, /disabled|readonly/i);
+    const app = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8");
+    assert.doesNotMatch(app, /shiftSelect["'`)\]]*\)?\.(disabled|readOnly)\s*=/);
+    assert.doesNotMatch(app, /shiftSelect[^\n]*setAttribute\(\s*["']disabled/);
+});
+
+test("v2.7 т.1-3: потребителят избира I и II смяна във всеки етап; часовите интервали следват смяната", () => {
+    const t = setup();
+    for (const [stage, cls] of [["gymnasium", "8А"], ["progymnasium", "5А"]]) {
+        t.run(`currentStage = "${stage}"; populateClasses();`);
+        const r1 = rows(setSchedule(t, cls, 1));
+        assert.equal(shiftNow(t), "1");
+        assert.match(r1[0], /7:30 - 8:10/); assert.match(r1[6], /12:35 - 13:15/);
+        const r2 = rows(setSchedule(t, cls, 2));
+        assert.equal(shiftNow(t), "2");
+        assert.match(r2[0], /12:35 - 13:15/); assert.match(r2[6], /17:50 - 18:30/);
+        const r1b = rows(setSchedule(t, cls, 1));                 // и обратно – не е „залепнала“
+        assert.match(r1b[0], /7:30 - 8:10/);
+        assert.match(t.elements.viewIndicator.innerHTML, /I смяна/);
+    }
+});
+
+test("v2.7 т.4/5: етапът обръща смяната, денят/класът/формата – не; ръчният избор след обръщане се пази", () => {
+    const t = setup(); flip(t, "gymnasium", 1);
+    t.run(`setStage("progymnasium")`); assert.equal(shiftNow(t), "2");
+    t.run(`document.getElementById("shiftSelect").value = "1"; renderSchedule()`);     // ръчно обратно на I
+    assert.equal(shiftNow(t), "1");
+    t.run(`document.getElementById("classSelect").value = "7А"; renderSchedule(); openAddModal("7А", 1, "Вторник", 2); closeModal(); populateClasses();`);
+    assert.equal(shiftNow(t), "1");
+    t.run(`setStage("gymnasium")`); assert.equal(shiftNow(t), "2");
+    t.run(`setStage("progymnasium")`); assert.equal(shiftNow(t), "1");
+});
+
+test("v2.7 т.6: след презареждане (запомнен етап) изборът на смяна остава свободен", () => {
+    const t = setup();
+    t.run(`localStorage.getItem = () => "progymnasium"; loadStagePreference(); populateClasses(); renderViews();`);
+    assert.equal(t.run("currentStage"), "progymnasium");
+    for (const s of [2, 1, 2]) {
+        const r = rows(setSchedule(t, "5А", s));
+        assert.equal(shiftNow(t), String(s));
+        assert.match(r[0], s === 1 ? /7:30 - 8:10/ : /12:35 - 13:15/);
+    }
+});
+
+test("v2.7 т.7: I/7 и II/1 са независими клетки в UI (консултация в едната не се показва в другата)", () => {
+    const t = setup();
+    const r1 = rows(setSchedule(t, "8А", 1)), r2 = rows(setSchedule(t, "8А", 2));
+    assert.match(r1[6], /Математика/);          // I/7 понеделник
+    assert.doesNotMatch(r2[0], /Математика/);   // II/1 празна
+});
