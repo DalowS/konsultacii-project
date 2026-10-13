@@ -49,7 +49,7 @@ function renderSchedule() {
 
     CONFIG.hours.forEach(hour => {
         html += `<tr>`;
-        html += `<td class="hour-cell">${positionLabel(shift, hour) || (hour + " час")}</td>`;
+        html += `<td class="hour-cell">${formatTimeRange(positionLabel(shift, hour)) || (hour + " час")}</td>`;
 
         CONFIG.days.forEach(day => {
             const records = getCellRecords(className, shift, day, hour);
@@ -381,6 +381,9 @@ const SCREENS = ["loadingScreen", "loginScreen", "teacherScreen", "adminScreen"]
 
 function showScreen(id) {
     SCREENS.forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
+    // горната навигация (график / моите консултации / администрация / изход) – само след вход
+    const nav = document.getElementById("topNav");
+    if (nav) nav.classList.toggle("hidden", id !== "teacherScreen" && id !== "adminScreen");
 }
 
 function isVisible(id) {
@@ -693,6 +696,7 @@ function updateViewIndicator() {
     if (!el) return;
     const shift = Number(document.getElementById("shiftSelect").value) || 1;
     el.innerHTML = `<strong>${escapeHtml(STAGES[currentStage].label)} · ${shiftText(shift)} смяна</strong>` +
+        `<span class="view-range">Консултации: <b>${escapeHtml(shiftRangeLabel(shift))}</b></span>` +
         (viewNote ? `<span class="view-note">${escapeHtml(viewNote)}</span>` : "");
     el.classList.toggle("changed", !!viewNote);
 }
@@ -1198,7 +1202,7 @@ function refreshConflictUI() {
     let details = "";
     if (ev.teacherConflict) {
         const r = ev.teacherConflict;
-        details += conflictItemHtml({ title: "⚠️ В този ден и час вече имате консултация..",
+        details += conflictItemHtml({ title: "⚠️ Учителят вече има консултация в този час.",
             details: [["Предмет", r.subject], ["Класове", r.classes.join(", ")]].concat(r.location ? [["Място", r.location]] : []) });
     }
     ev.blocked.forEach(c => { details += conflictItemHtml(describeClassConflict(c, ev.conflicts[c])); });
@@ -1246,7 +1250,7 @@ let modalSlot = { shift: 1, hour: 1 };
 function setModalSlot(shift, hour) {
     modalSlot = { shift: Number(shift), hour: Number(hour) };
     document.getElementById("modalShift").value = Number(shift) === 1 ? "I смяна" : "II смяна";
-    document.getElementById("modalHour").value = positionLabel(shift, hour) || `${hour} (невалиден час)`;
+    document.getElementById("modalHour").value = formatTimeRange(positionLabel(shift, hour)) || `${hour} (невалиден час)`;
 }
 
 

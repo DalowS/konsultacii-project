@@ -7,25 +7,26 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-</head>
-<body>
-
 
 <header class="header">
     <div class="header-inner">
-        <div class="header-left">
+        <div class="brand">
             <h1>График за консултации</h1>
-            <small>Учебна година 2026/2027 · Тестова версия 2.8</small>
         </div>
-
-        <div class="school-name">
-            СУ „Св. Паисий Хилендарски“ – Пловдив
+        <div id="topNav" class="topnav hidden">
+            <nav class="nav-links" aria-label="Основна навигация">
+                <button type="button" class="nav-btn" onclick="showTeacherScreen()">График</button>
+                <button type="button" class="nav-btn" onclick="showMyConsultations()">Моите консултации</button>
+                <span id="adminToolbarBlock" class="hidden"><button type="button" class="nav-btn" onclick="showAdminScreen()">Администрация</button></span>
+            </nav>
+            <div class="nav-user">
+                <span id="headerUser" class="user-name"></span>
+                <span id="currentTeacher" class="sr-only"></span>
+                <button type="button" class="nav-btn nav-exit" onclick="logout()">Изход</button>
+            </div>
         </div>
-
-        <div id="headerUser"></div>
     </div>
 </header>
-
 
 <main class="container">
 
@@ -63,18 +64,9 @@
     <!-- TEACHER APP -->
     <section id="teacherScreen" class="hidden">
 
-        <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
-        <div id="viewIndicator" class="view-indicator" role="status" aria-live="polite"></div>
+        <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап"></div>
 
-        <div class="card">
-            <div class="teacher-info">
-                <strong>Учител:</strong>
-                <span id="currentTeacher" class="badge"></span>
-                <button class="btn-primary" onclick="showMyConsultations()">Моите консултации</button><button class="btn-secondary" onclick="logout()" style="margin-left:auto;">Изход</button>
-            </div>
-        </div>
-
-        <div class="card">
+        <div class="card filter-panel">
             <div id="statusMessage" class="status"></div>
 
             <div class="toolbar">
@@ -89,21 +81,10 @@
                         <option value="1">I смяна</option>
                         <option value="2">II смяна</option>
                     </select>
-                  
                 </div>
 
-
-                <div id="adminToolbarBlock" class="hidden">
-                    <label>Администрация</label>
-                    <div class="toolbar-actions">
-                        <button class="btn-secondary" onclick="showAdminScreen()">Админ панел</button>
-                    </div>
-                </div>
-                
+                <div id="viewIndicator" class="view-indicator" role="status" aria-live="polite"></div>
             </div>
-  <p style="font-size:12px;color:#64748b;margin-bottom:0;">
-                Консултациите са извън редовните учебни часове.
-            </p>
         </div>
 
         <div class="card">
@@ -124,15 +105,14 @@
     <!-- ADMIN PANEL -->
     <section id="adminScreen" class="hidden admin-panel">
 
-        <div class="stage-tabs" data-stage-tabs style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;"></div>
+        <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап"></div>
 
         <div class="card">
             <div class="teacher-info">
                 <div>
-                    <h2 style="margin:0 0 4px;">Администраторски панел</h2>
-                    <small style="color:#64748b;">Пълен контрол върху графика</small>
+                    <h2 class="page-title">Администрация</h2>
+                    <small class="muted">Пълен контрол върху графика</small>
                 </div>
-                <button class="btn-secondary" onclick="logout()" style="margin-left:auto;">Изход</button>
             </div>
         </div>
 
@@ -226,33 +206,35 @@
     </section>
 
     <div class="footer-note">
-        Сайтът е разработен в помощ на СУ. "Св. Паисий Хилендраски" - Пловдив.
+        Данните се съхраняват в споделена база данни (Supabase).
     </div>
-<div id="myConsultationsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="myConsultationsTitle"><div class="modal modal-wide"><h3 id="myConsultationsTitle">Моите консултации</h3><div id="myConsultationsList"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeMyConsultations()">Затвори</button><button id="myPrintBtn" class="btn-primary" onclick="printMyConsultations()">🖨 Печат</button></div></div></div>
+<div id="myConsultationsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="myConsultationsTitle"><div class="modal modal-wide"><h3 id="myConsultationsTitle" class="modal-title">Моите консултации</h3><div id="myConsultationsList"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeMyConsultations()">Затвори</button><button id="myPrintBtn" class="btn-primary" onclick="printMyConsultations()">🖨 Печат</button></div></div></div>
 
 <!-- ADD / EDIT MODAL -->
 <div id="modalOverlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal">
-        <h3 id="modalTitle">Добавяне на консултация</h3>
+        <h3 id="modalTitle" class="modal-title">Добавяне на консултация</h3>
 
-        <div class="form-group">
-            <label for="modalClass">Клас</label>
-            <input id="modalClass" type="text" readonly>
-        </div>
+        <div class="modal-grid">
+            <div class="form-group">
+                <label for="modalClass">Клас</label>
+                <input id="modalClass" type="text" readonly>
+            </div>
 
-        <div class="form-group">
-            <label for="modalShift">Смяна</label>
-            <input id="modalShift" type="text" readonly>
-        </div>
+            <div class="form-group">
+                <label for="modalShift">Смяна</label>
+                <input id="modalShift" type="text" readonly>
+            </div>
 
-        <div class="form-group">
-            <label for="modalDay">Ден</label>
-            <input id="modalDay" type="text" readonly>
-        </div>
+            <div class="form-group">
+                <label for="modalDay">Ден</label>
+                <input id="modalDay" type="text" readonly>
+            </div>
 
-        <div class="form-group">
-            <label for="modalHour">Час</label>
-            <input id="modalHour" type="text" readonly>
+            <div class="form-group">
+                <label for="modalHour">Час</label>
+                <input id="modalHour" type="text" readonly>
+            </div>
         </div>
 
         <div class="form-group">
@@ -267,7 +249,7 @@
 
         <div class="form-group">
             <label id="extraClassesLabel">Класове</label>
-            <div id="extraClassesBox" role="group" aria-labelledby="extraClassesLabel" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:14px;max-height:180px;overflow:auto;border:1px solid #ddd;padding:10px;border-radius:6px;"></div>
+            <div id="extraClassesBox" class="class-picker" role="group" aria-labelledby="extraClassesLabel"></div>
         </div>
 
         <div id="conflictSummary" class="conflict-summary" aria-live="polite"></div>
@@ -277,7 +259,7 @@
 
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeModal()">Отказ</button>
-            <button id="modalSaveBtn" class="btn-primary" onclick="saveConsultation()">Запази</button>
+            <button id="modalSaveBtn" class="btn-primary" onclick="saveConsultation()">Запази консултация</button>
         </div>
     </div>
 </div>

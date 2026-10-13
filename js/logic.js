@@ -82,6 +82,15 @@
 
     const shiftText = shift => Number(shift) === 1 ? "I" : "II";
 
+    // САМО за екранно показване: "7:30 - 8:10" -> "07:30–08:10". Не променя TIME_SLOTS, CSV и печата.
+    const formatTimeRange = label => String(label || "").replace(/(\d{1,2}):(\d{2})/g, (m, h, mi) => h.padStart(2, "0") + ":" + mi).replace(/\s*-\s*/, "–");
+
+    // Диапазонът на консултациите за избраната смяна (от началото на час 1 до края на час 7), изчислен от positionLabel.
+    const shiftRangeLabel = shift => {
+        const a = positionLabel(shift, 1), b = positionLabel(shift, POSITIONS_PER_SHIFT);
+        return a && b ? formatTimeRange(a.split(" - ")[0] + " - " + b.split(" - ")[1]) : "";
+    };
+
     /* ------------------------------------------------------------------
      * ЕТАПИ – определят се само от номера на класа (без ново поле в базата)
      * ------------------------------------------------------------------ */
@@ -255,7 +264,7 @@
     const api = { DAY_NAMES, dayToIndex, indexToDay, normalizeSubject, normalizeClasses,
                   compareClassNames, escapeHtml, csvCell, friendlyError, countOccupiedCells,
                   TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition,
-                  positionLabel, shiftText, normalizeParallel, buildClassName,
+                  positionLabel, shiftText, formatTimeRange, shiftRangeLabel, normalizeParallel, buildClassName,
                   STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords,
                   getOppositeShift, stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,
                   findTeacherConflict, evaluateSelection, summarizeSelection, describeClassConflict, classMarkers };
