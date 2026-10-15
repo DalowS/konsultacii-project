@@ -370,6 +370,9 @@ let realtimeChannel = null;
 let pollTimer = null;
 let reloadTimer = null;
 let authMode = "login";
+let adminSection = "consultations";          // settings | users | classes | consultations
+let profileSection = "profile";              // profile | password
+const ADMIN_TITLES = { settings: "Настройки", users: "Потребители", classes: "Класове", consultations: "Консултации" };
 let sessionQueue = Promise.resolve();
 
 /*
@@ -377,14 +380,54 @@ let sessionQueue = Promise.resolve();
     UI ПОМОЩНИ ФУНКЦИИ
     ==========================================================
 */
-const SCREENS = ["loadingScreen", "loginScreen", "teacherScreen", "adminScreen"];
+const SCREENS = ["loadingScreen", "loginScreen", "teacherScreen", "adminScreen", "profileScreen"];
 
 function showScreen(id) {
     SCREENS.forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
-    // горната навигация (график / моите консултации / администрация / изход) – само след вход
-    const nav = document.getElementById("topNav");
-    if (nav) nav.classList.toggle("hidden", id !== "teacherScreen" && id !== "adminScreen");
+    // навигацията (sidebar, потребител в заглавната лента) е само след вход
+    const inApp = id === "teacherScreen" || id === "adminScreen" || id === "profileScreen";
+    document.body.classList.toggle("authed", inApp);
+    closeSidebar();
+    renderHeader();
+    updateNav();
 }
+
+// Заглавна лента: срок и учебна година + име на училището идват от настройките (БД), не са във HTML.
+function renderHeader() {
+    const settings = storage.getSettings();
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("headerTerm", termLine(settings));
+    set("headerSchool", settings ? settings.school_name : "");
+    set("headerUser", currentUser ? userLine(currentTeacher, currentUser.role) : "");
+    set("currentTeacher", currentTeacher);
+    set("sidebarUser", currentUser ? userLine(currentTeacher, currentUser.role) : "");   // видимо в менюто на малки екрани
+    // само UX: администраторските изгледи са защитени от RLS/RPC (is_admin) на сървъра
+    const adminNav = document.getElementById("adminToolbarBlock");
+    if (adminNav) adminNav.classList.toggle("hidden", !isAdmin);
+}
+
+function currentNavKey() {
+    if (isVisible("teacherScreen")) return "schedule";
+    if (isVisible("adminScreen")) return "admin-" + adminSection;
+    if (isVisible("profileScreen")) return profileSection;
+    return "";
+}
+
+function updateNav() {
+    const key = currentNavKey();
+    document.querySelectorAll("[data-nav]").forEach(btn => {
+        if (btn.dataset.nav === key) btn.setAttribute("aria-current", "page");
+        else btn.removeAttribute("aria-current");
+    });
+}
+
+function setSidebarOpen(open) {
+    document.body.classList.toggle("sidebar-open", !!open);
+    const toggle = document.getElementById("menuToggle");
+    if (toggle) toggle.setAttribute("aria-expanded", String(!!open));
+}
+function toggleSidebar() { setSidebarOpen(!document.body.classList.contains("sidebar-open")); }
+function closeSidebar() { setSidebarOpen(false); }
 
 function isVisible(id) {
     return !document.getElementById(id).classList.contains("hidden");
@@ -462,6 +505,7 @@ async function handleSession(session) {
     try {
         const profile = await auth.loadProfile(session.user);
         await storage.refresh();
+        await storage.loadSettings();            // не блокира графика при грешка
         currentUser = profile;
         isAdmin = profile.role === "admin";
         currentTeacher = profile.name;
@@ -485,8 +529,12 @@ function teardown() {
     isAdmin = false;
     currentTeacher = "";
     storage._cache = [];
-    document.getElementById("headerUser").textContent = "";
-    document.getElementById("authPassword").value = "";
+    storage._settings = null;
+    storage._users = null;
+    ["authPassword", "regPassword2", "pwCurrent", "pwNew", "pwRepeat"].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = "";
+    });
+    renderHeader();
 }
 
 /*
@@ -499,9 +547,11 @@ function toggleAuthMode() {
     const reg = authMode === "register";
     document.getElementById("authTitle").textContent = reg ? "Регистрация на учител" : "Вход в системата";
     document.getElementById("authHint").textContent = reg
-        ? "Създайте профил с имейл и парола (поне 8 символа)."
+        ? "Регистрация само с имейл @paisii.info. Паролата е поне 8 символа, с главна и малка буква и цифра."
         : "Влезте с имейл и парола.";
     document.getElementById("regNameGroup").style.display = reg ? "block" : "none";
+    document.getElementById("regPassword2Group").style.display = reg ? "block" : "none";
+    document.getElementById("regPassword2").value = "";
     document.getElementById("authSubmit").textContent = reg ? "Регистрация" : "Вход";
     document.getElementById("authToggle").textContent = reg ? "Вече имам профил" : "Нова регистрация";
     document.getElementById("authPassword").autocomplete = reg ? "new-password" : "current-password";
@@ -511,14 +561,17 @@ function toggleAuthMode() {
 async function submitAuth() {
     const btn = document.getElementById("authSubmit");
     if (btn.disabled) return;
-    const email = document.getElementById("authEmail").value.trim();
     const password = document.getElementById("authPassword").value;
     const name = document.getElementById("regName").value.trim();
+    let email = normalizeEmail(document.getElementById("authEmail").value);
 
-    if (!email || !password) { showAuthMessage("Моля, въведете имейл и парола.", "error"); return; }
     if (authMode === "register") {
-        if (!name) { showAuthMessage("Моля, въведете име и фамилия.", "error"); return; }
-        if (password.length < 8) { showAuthMessage("Паролата трябва да е поне 8 символа.", "error"); return; }
+        // само UX слой; домейнът се налага и от trigger върху auth.users (миграция 20261010000000)
+        const v = validateRegistration({ name, email, password, password2: document.getElementById("regPassword2").value });
+        if (!v.ok) { showAuthMessage(v.errors.join("\n"), "error"); return; }
+        email = v.email;
+    } else if (!email || !password) {
+        showAuthMessage("Моля, въведете имейл и парола.", "error"); return;
     }
 
     setBusy(btn, true, authMode === "register" ? "Регистриране..." : "Влизане...");
@@ -538,8 +591,10 @@ async function submitAuth() {
     } catch (error) {
         console.error(error);
         const invalid = /invalid login credentials/i.test(error.message || "");
+        const dbReject = authMode === "register" && /database error saving new user|paisii\.info/i.test(error.message || "");
         showAuthMessage(invalid ? "Грешен имейл или парола."
-            : friendlyError(error, "Неуспешен вход. Моля, опитайте отново."), "error");
+            : dbReject ? "Регистрацията е разрешена само с имейл от домейна @paisii.info."
+            : friendlyError(error, authMode === "register" ? "Неуспешна регистрация. Моля, опитайте отново." : "Неуспешен вход. Моля, опитайте отново."), "error");
     } finally {
         setBusy(btn, false);
     }
@@ -559,22 +614,116 @@ async function logout() {
 function showTeacherScreen() {
     showScreen("teacherScreen");
     renderStageTabs();
-    document.getElementById("currentTeacher").textContent = currentTeacher;
-    document.getElementById("headerUser").textContent =
-        currentTeacher + (isAdmin ? " • Администратор" : "");
-    document.getElementById("adminToolbarBlock").classList.toggle("hidden", !isAdmin);
     renderSchedule();
 }
 
-function showAdminScreen() {
+function applyAdminSection() {
+    document.querySelectorAll("[data-admin-section]").forEach(el =>
+        el.classList.toggle("hidden", el.dataset.adminSection !== adminSection));
+    const title = document.getElementById("adminSectionTitle");
+    if (title) title.textContent = "Администрация · " + (ADMIN_TITLES[adminSection] || "");
+}
+
+function showAdminScreen(section) {
     if (!isAdmin) return;               // само UX; реалната защита е RLS/RPC
+    if (ADMIN_TITLES[section]) adminSection = section;
     showScreen("adminScreen");
+    applyAdminSection();
+    updateNav();
     renderStageTabs();
     populateAdminFilters();
     renderGroupSubjects();
     renderTeachersAdmin();
     renderClassesAdmin();
     refreshAdmin();
+    if (adminSection === "settings") fillSettingsForm();
+    if (adminSection === "users") loadUsersAndRender();
+}
+
+function fillSettingsForm() {
+    const s = storage.getSettings();
+    if (!s) {
+        showAdminStatus("Настройките на училището не са налични. Приложете миграция 20261010000000_school_settings_users_domain.sql.", "error");
+        return;
+    }
+    document.getElementById("settingsSchoolName").value = s.school_name;
+    document.getElementById("settingsYear").value = s.academic_year;
+    document.getElementById("settingsTerm").value = s.current_term;
+}
+
+async function saveSchoolSettings(btn) {
+    const v = validateSettings({
+        school_name: document.getElementById("settingsSchoolName").value,
+        academic_year: document.getElementById("settingsYear").value,
+        current_term: document.getElementById("settingsTerm").value
+    });
+    if (!v.ok) { showAdminStatus(v.errors.join("\n"), "error"); return; }
+    btn = btn || document.getElementById("settingsSaveBtn");
+    setBusy(btn, true, "Записване...");
+    try {
+        await storage.saveSettings(v.value);       // RPC admin_update_school_settings (само админ, проверка на сървъра)
+        renderHeader();
+        fillSettingsForm();
+        showAdminStatus("Настройките са запазени.", "success");
+    } catch (error) {
+        showError(error, "Неуспешно запазване на настройките.");
+    } finally { setBusy(btn, false); }
+}
+
+async function loadUsersAndRender() {
+    if (!isAdmin) return;
+    await storage.loadUsers();
+    if (isVisible("adminScreen")) renderTeachersAdmin();
+}
+
+/*
+    ==========================================================
+    ПРОФИЛ И СМЯНА НА ПАРОЛА
+    ==========================================================
+*/
+function showProfileScreen(section) {
+    if (!currentUser) return;
+    profileSection = section === "password" ? "password" : "profile";
+    showScreen("profileScreen");
+    document.querySelectorAll("[data-profile-section]").forEach(el =>
+        el.classList.toggle("hidden", el.dataset.profileSection !== profileSection));
+    document.getElementById("profileSectionTitle").textContent = profileSection === "password" ? "Смяна на парола" : "Моят профил";
+    document.getElementById("profileName").textContent = currentUser.name || "";
+    document.getElementById("profileEmail").textContent = currentUser.email || "";
+    document.getElementById("profileRole").textContent = roleLabel(currentUser.role);
+    ["pwCurrent", "pwNew", "pwRepeat"].forEach(id => { document.getElementById(id).value = ""; });
+    showPasswordMessage("", "");
+    updateNav();
+}
+
+function showPasswordMessage(message, type) {
+    const el = document.getElementById("passwordMessage");
+    el.textContent = message;
+    el.className = "status" + (type ? " " + type : "");
+}
+
+async function changePassword() {
+    const btn = document.getElementById("pwSubmit");
+    if (btn.disabled || !currentUser) return;
+    const current = document.getElementById("pwCurrent").value;
+    const next = document.getElementById("pwNew").value;
+    const repeat = document.getElementById("pwRepeat").value;
+
+    const v = validatePasswordChange({ current, next, repeat });
+    if (!v.ok) { showPasswordMessage(v.errors.join("\n"), "error"); return; }
+
+    setBusy(btn, true, "Сменяне...");
+    try {
+        await auth.changePassword(currentUser.email, current, next);
+        ["pwCurrent", "pwNew", "pwRepeat"].forEach(id => { document.getElementById(id).value = ""; });
+        showPasswordMessage("Паролата е сменена успешно.", "success");
+    } catch (error) {
+        // паролите никога не се логват – само кодът/съобщението на грешката
+        console.error("Смяна на парола:", error && (error.code || error.message));
+        showPasswordMessage(error && error.code === "WRONG_CURRENT_PASSWORD"
+            ? "Текущата парола е грешна."
+            : friendlyError(error, "Паролата не можа да бъде сменена. Моля, опитайте отново."), "error");
+    } finally { setBusy(btn, false); }
 }
 
 /*
@@ -619,7 +768,10 @@ async function reloadData() {
     if (!currentUser) return;
     try {
         await storage.refresh();
+        await storage.loadSettings();
+        if (isAdmin && isVisible("adminScreen") && adminSection === "users") await storage.loadUsers();
         renderViews();
+        renderHeader();
     } catch (error) {
         console.error(error);
     }
@@ -800,21 +952,29 @@ async function addGroupSubject() {
 function renderTeachersAdmin() {
     const box = document.getElementById("teachersAdmin");
     if (!box) return;
-    box.innerHTML = `<thead><tr><th>Име</th><th>Роля</th><th></th></tr></thead><tbody>` +
-        storage.getTeachers().map(t => `
+    // имейл, статус и дата идват от защитена функция (само админ); ако още не е заредена – „—“
+    const users = new Map((storage.getUsers() || []).map(u => [u.id, u]));
+    const date = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? d.toLocaleDateString("bg-BG") : "—"; };
+    box.innerHTML = `<thead><tr><th>Име</th><th>Имейл</th><th>Роля</th><th>Статус</th><th>Регистриран</th><th></th></tr></thead><tbody>` +
+        storage.getTeachers().map(t => {
+            const u = users.get(t.id);
+            return `
         <tr>
-            <td><input id="tn_${t.id}" type="text" value="${escapeHtml(t.name)}" maxlength="100"></td>
-            <td><select id="tr_${t.id}">
+            <td><input id="tn_${t.id}" type="text" value="${escapeHtml(t.name)}" maxlength="100" aria-label="Име"></td>
+            <td class="cell-email">${u ? escapeHtml(u.email || "—") : "—"}</td>
+            <td><select id="tr_${t.id}" aria-label="Роля">
                 <option value="teacher" ${t.role === "teacher" ? "selected" : ""}>Учител</option>
                 <option value="admin" ${t.role === "admin" ? "selected" : ""}>Администратор</option>
             </select></td>
-            <td>
+            <td>${escapeHtml(u ? userStatusLabel(u.status) : "—")}</td>
+            <td>${u ? date(u.created_at) : "—"}</td>
+            <td class="cell-actions-col">
                 <button class="btn-primary" onclick="saveTeacher('${t.id}', this)">Запази</button>
                 ${currentUser && t.id === currentUser.id
-                    ? `<em style="margin-left:8px;color:#64748b;">(Вие)</em>`
+                    ? `<em class="muted">(Вие)</em>`
                     : `<button class="btn-danger" onclick="removeTeacher('${t.id}', this)">Премахни</button>`}
             </td>
-        </tr>`).join("") + `</tbody>`;
+        </tr>`; }).join("") + `</tbody>`;
 }
 
 async function saveTeacher(id, btn) {
@@ -1129,6 +1289,7 @@ function renderMyConsultations() {
 }
 
 function showMyConsultations() {
+    closeSidebar();
     lastFocused = document.activeElement;
     renderMyConsultations();
     document.getElementById("myConsultationsModal").style.display = "flex";
@@ -1227,7 +1388,10 @@ document.addEventListener("keydown", event => {
     if (event.key !== "Escape") return;
     if (isModalOpen()) closeModal();
     else if (isMyModalOpen()) closeMyConsultations();
+    else if (document.body.classList.contains("sidebar-open")) closeSidebar();
 });
+// при преминаване към голям екран мобилното меню се затваря
+window.addEventListener("resize", () => { if (window.innerWidth > 900) closeSidebar(); });
 
 /*
     ==========================================================

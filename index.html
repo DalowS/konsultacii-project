@@ -11,22 +11,55 @@
 <header class="header">
     <div class="header-inner">
         <div class="brand">
-            <h1>График за консултации</h1>
-        </div>
-        <div id="topNav" class="topnav hidden">
-            <nav class="nav-links" aria-label="Основна навигация">
-                <button type="button" class="nav-btn" onclick="showTeacherScreen()">График</button>
-                <button type="button" class="nav-btn" onclick="showMyConsultations()">Моите консултации</button>
-                <span id="adminToolbarBlock" class="hidden"><button type="button" class="nav-btn" onclick="showAdminScreen()">Администрация</button></span>
-            </nav>
-            <div class="nav-user">
-                <span id="headerUser" class="user-name"></span>
-                <span id="currentTeacher" class="sr-only"></span>
-                <button type="button" class="nav-btn nav-exit" onclick="logout()">Изход</button>
+            <button id="menuToggle" type="button" class="menu-toggle" aria-label="Меню" aria-controls="sidebar" aria-expanded="false" onclick="toggleSidebar()">
+                <span class="menu-bars" aria-hidden="true"></span>
+            </button>
+            <div class="brand-text">
+                <h1>График за консултации</h1>
+                <div id="headerTerm" class="brand-sub"></div>
             </div>
+        </div>
+        <div id="headerSchool" class="header-school"></div>
+        <div class="header-user">
+            <span id="headerUser" class="user-name"></span>
+            <span id="currentTeacher" class="sr-only"></span>
+            <button type="button" class="nav-btn nav-exit" onclick="logout()">Изход</button>
         </div>
     </div>
 </header>
+
+<div class="app-shell">
+
+<aside id="sidebar" class="sidebar" aria-label="Основна навигация">
+    <nav>
+        <button type="button" class="nav-close" aria-label="Затвори менюто" onclick="closeSidebar()">✕ Затвори менюто</button>
+        <div id="sidebarUser" class="nav-user"></div>
+        <div class="nav-group">
+            <div class="nav-heading">График</div>
+            <button type="button" class="nav-item" data-nav="schedule" onclick="showTeacherScreen()">График</button>
+            <button type="button" class="nav-item" data-nav="mine" onclick="showMyConsultations()">Моите консултации</button>
+        </div>
+
+        <div id="adminToolbarBlock" class="nav-group hidden">
+            <div class="nav-heading">Администрация</div>
+            <button type="button" class="nav-item" data-nav="admin-settings" onclick="showAdminScreen('settings')">Настройки</button>
+            <button type="button" class="nav-item" data-nav="admin-users" onclick="showAdminScreen('users')">Потребители</button>
+            <button type="button" class="nav-item" data-nav="admin-classes" onclick="showAdminScreen('classes')">Класове</button>
+            <button type="button" class="nav-item" data-nav="admin-consultations" onclick="showAdminScreen('consultations')">Консултации</button>
+        </div>
+
+        <div class="nav-group">
+            <div class="nav-heading">Профил</div>
+            <button type="button" class="nav-item" data-nav="profile" onclick="showProfileScreen('profile')">Моят профил</button>
+            <button type="button" class="nav-item" data-nav="password" onclick="showProfileScreen('password')">Смяна на парола</button>
+        </div>
+
+        <div class="nav-group nav-bottom">
+            <button type="button" class="nav-item nav-logout" onclick="logout()">Изход</button>
+        </div>
+    </nav>
+</aside>
+<div id="sidebarBackdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
 
 <main class="container">
 
@@ -47,11 +80,16 @@
         </div>
         <div class="form-group">
             <label for="authEmail">Имейл</label>
-            <input id="authEmail" type="email" autocomplete="username" placeholder="name@school.bg">
+            <input id="authEmail" type="email" autocomplete="username" placeholder="name@paisii.info">
         </div>
         <div class="form-group">
             <label for="authPassword">Парола</label>
             <input id="authPassword" type="password" autocomplete="current-password"
+                   onkeydown="if(event.key==='Enter') submitAuth()">
+        </div>
+        <div class="form-group" id="regPassword2Group" style="display:none;">
+            <label for="regPassword2">Повтори паролата</label>
+            <input id="regPassword2" type="password" autocomplete="new-password"
                    onkeydown="if(event.key==='Enter') submitAuth()">
         </div>
 
@@ -102,112 +140,178 @@
         </div>
     </section>
 
+    <!-- PROFILE / PASSWORD -->
+    <section id="profileScreen" class="hidden profile-panel">
+        <div class="page-head"><h2 id="profileSectionTitle" class="page-title">Моят профил</h2></div>
+
+        <div id="profileSection" data-profile-section="profile" class="card form-card">
+            <h3>Данни за профила</h3>
+            <dl class="kv">
+                <dt>Име</dt><dd id="profileName"></dd>
+                <dt>Имейл</dt><dd id="profileEmail"></dd>
+                <dt>Роля</dt><dd id="profileRole"></dd>
+            </dl>
+            <p class="muted small">Ролята се определя от администратор и не може да се променя оттук.</p>
+            <button type="button" class="btn-secondary" onclick="showProfileScreen('password')">Смяна на парола</button>
+        </div>
+
+        <div id="passwordSection" data-profile-section="password" class="card form-card hidden">
+            <h3>Смяна на парола</h3>
+            <div id="passwordMessage" class="status" role="status" aria-live="polite"></div>
+            <div class="form-group">
+                <label for="pwCurrent">Текуща парола</label>
+                <input id="pwCurrent" type="password" autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label for="pwNew">Нова парола</label>
+                <input id="pwNew" type="password" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label for="pwRepeat">Повтори новата парола</label>
+                <input id="pwRepeat" type="password" autocomplete="new-password"
+                       onkeydown="if(event.key==='Enter') changePassword()">
+            </div>
+            <p class="muted small">Поне 8 символа, една главна буква, една малка буква и една цифра.</p>
+            <button id="pwSubmit" type="button" class="btn-primary" onclick="changePassword()">Смени паролата</button>
+        </div>
+    </section>
+
     <!-- ADMIN PANEL -->
     <section id="adminScreen" class="hidden admin-panel">
 
-        <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап"></div>
+        <div class="page-head"><h2 id="adminSectionTitle" class="page-title">Администрация</h2></div>
+        <div id="adminStatus" class="status" role="status" aria-live="polite"></div>
 
-        <div class="card">
-            <div class="teacher-info">
-                <div>
-                    <h2 class="page-title">Администрация</h2>
-                    <small class="muted">Пълен контрол върху графика</small>
+        <!-- Настройки -->
+        <div data-admin-section="settings" class="admin-section">
+            <div class="card form-card">
+                <h3>Настройки на училището</h3>
+                <div class="form-group">
+                    <label for="settingsSchoolName">Име на училището</label>
+                    <input id="settingsSchoolName" type="text" maxlength="150" autocomplete="off">
+                </div>
+                <div class="settings-row">
+                    <div class="form-group">
+                        <label for="settingsYear">Учебна година</label>
+                        <input id="settingsYear" type="text" maxlength="9" placeholder="2026/2027" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="settingsTerm">Текущ срок</label>
+                        <select id="settingsTerm">
+                            <option value="I">I срок</option>
+                            <option value="II">II срок</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="settingsSaveBtn" type="button" class="btn-primary" onclick="saveSchoolSettings(this)">Запази настройките</button>
+                <p class="muted small">Тези стойности се показват в горната лента на всички потребители.</p>
+            </div>
+
+            <div class="card">
+                <h3>Предмети с паралелни групи</h3>
+                <div id="groupSubjectsContainer"></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                    <input id="newGroupSubject" type="text" placeholder="Нов предмет" maxlength="100" style="max-width:240px;">
+                    <button class="btn-secondary" onclick="addGroupSubject()">Добави предмет</button>
+                    <button class="btn-primary" onclick="saveGroupSubjects(event)">Запази предметите</button>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <div id="adminStatus" class="status"></div>
-
-            <h3>Обобщение – <span id="adminStageLabel"></span></h3>
-            <div id="adminStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;"></div>
-
-            <div class="toolbar-actions">
-                <button class="btn-success" onclick="exportCSV()">Експорт към Excel</button><button class="btn-primary" onclick="printScheduleReport()">График за печат</button>
-                <button class="btn-warning" onclick="clearAllData()">Изчисти всички записи</button>
-                 <button class="btn-secondary" onclick="backupData()">Резервно копие</button>
-                 <button class="btn-secondary" onclick="importLocalData()">Импорт на локални данни</button>
-                 <button class="btn-secondary" onclick="document.getElementById('restoreFile').click()">Възстанови</button>
-                 <input id="restoreFile" type="file" accept="application/json" hidden onchange="restoreData(event)">
-                <button class="btn-secondary" onclick="showTeacherScreen()">Към графика</button>
-            </div>
-
-            <p style="font-size:12px;color:#64748b;margin-bottom:0;">
-                Администраторът може да редактира и изтрива всеки запис.
-                Експортът е CSV файл, който се отваря директно с Excel.
-            </p>
-        </div>
-
-        <div class="card">
-            <h3>Предмети с паралелни групи</h3>
-            <div id="groupSubjectsContainer"></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                <input id="newGroupSubject" type="text" placeholder="Нов предмет" maxlength="100" style="max-width:240px;">
-                <button class="btn-secondary" onclick="addGroupSubject()">Добави предмет</button>
-                <button class="btn-primary" onclick="saveGroupSubjects(event)">Запази настройките</button>
+        <!-- Потребители -->
+        <div data-admin-section="users" class="admin-section hidden">
+            <div class="card">
+                <h3>Потребители</h3>
+                <div class="schedule-wrapper"><table id="teachersAdmin"></table></div>
+                <p class="muted small" style="margin-bottom:0;">Нови потребители се регистрират сами от екрана за вход (само с имейл @paisii.info); тук се сменят име и роля. Имейл, статус и дата се четат от Auth през защитена функция само за администратор.</p>
             </div>
         </div>
 
-<div class="card">
-            <h3>Класове</h3>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
-                <div class="form-group" style="margin:0;">
-                    <label for="newClassGrade">Клас (номер)</label>
-                    <input id="newClassGrade" type="number" min="1" max="12" step="1" placeholder="напр. 5" style="max-width:120px;">
+        <!-- Класове -->
+        <div data-admin-section="classes" class="admin-section hidden">
+            <div class="card">
+                <h3>Класове</h3>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="newClassGrade">Клас (номер)</label>
+                        <input id="newClassGrade" type="number" min="1" max="12" step="1" placeholder="напр. 5" style="max-width:120px;">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="newClassLetter">Паралелка</label>
+                        <input id="newClassLetter" type="text" maxlength="1" list="classLetters" placeholder="А" style="max-width:90px;">
+                        <datalist id="classLetters"><option value="А"><option value="Б"><option value="В"><option value="Г"><option value="Д"><option value="Е"></datalist>
+                    </div>
+                    <button class="btn-primary" onclick="addClass(event)">Добави клас</button>
                 </div>
-                <div class="form-group" style="margin:0;">
-                    <label for="newClassLetter">Паралелка</label>
-                    <input id="newClassLetter" type="text" maxlength="1" list="classLetters" placeholder="А" style="max-width:90px;">
-                    <datalist id="classLetters"><option value="А"><option value="Б"><option value="В"><option value="Г"><option value="Д"><option value="Е"></datalist>
-                </div>
-                <button class="btn-primary" onclick="addClass(event)">Добави клас</button>
+                <div id="classesAdmin" class="classes-grid"></div>
             </div>
-            <div id="classesAdmin" class="classes-grid"></div>
         </div>
 
-        <div class="card">
-            <h3>Потребители</h3>
-            <div class="schedule-wrapper"><table id="teachersAdmin"></table></div>
-            <p style="font-size:12px;color:#64748b;margin-bottom:0;">Нови потребители се регистрират сами от екрана за вход; тук се сменят име и роля.</p>
-        </div>
+        <!-- Консултации (обобщение, експорт, резервни копия, таблица) -->
+        <div data-admin-section="consultations" class="admin-section hidden">
+            <div class="stage-tabs" data-stage-tabs role="group" aria-label="Етап"></div>
 
-        <div class="card">
-            <h3>Консултации – <span id="adminTableStage"></span></h3>
+            <div class="card tabs-panel">
+                <h3>Обобщение – <span id="adminStageLabel"></span></h3>
+                <div id="adminStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;"></div>
 
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:15px;">
-                <div class="form-group" style="margin:0;">
-                    <label for="adminClassFilter">Клас</label>
-                    <select id="adminClassFilter" onchange="renderAdminTable()">
-                        <option value="">Всички класове</option>
-                    </select>
+                <div class="toolbar-actions">
+                    <button class="btn-success" onclick="exportCSV()">Експорт към Excel</button><button class="btn-primary" onclick="printScheduleReport()">График за печат</button>
+                    <button class="btn-warning" onclick="clearAllData()">Изчисти всички записи</button>
+                    <button class="btn-secondary" onclick="backupData()">Резервно копие</button>
+                    <button class="btn-secondary" onclick="importLocalData()">Импорт на локални данни</button>
+                    <button class="btn-secondary" onclick="document.getElementById('restoreFile').click()">Възстанови</button>
+                    <input id="restoreFile" type="file" accept="application/json" hidden onchange="restoreData(event)">
+                    <button class="btn-secondary" onclick="showTeacherScreen()">Към графика</button>
                 </div>
 
-                <div class="form-group" style="margin:0;">
-                    <label for="adminShiftFilter">Смяна</label>
-                    <select id="adminShiftFilter" onchange="renderAdminTable()">
-                        <option value="">Всички смени</option>
-                        <option value="1">I смяна</option>
-                        <option value="2">II смяна</option>
-                    </select>
-                </div>
-
-                <div class="form-group" style="margin:0;">
-                    <label for="adminTeacherFilter">Търсене на учител</label>
-                    <input id="adminTeacherFilter" type="text"
-                           placeholder="Име..."
-                           oninput="renderAdminTable()">
-                </div>
+                <p class="muted small" style="margin-bottom:0;">
+                    Администраторът може да редактира и изтрива всеки запис.
+                    Експортът е CSV файл, който се отваря директно с Excel.
+                </p>
             </div>
 
-            <div class="schedule-wrapper">
-                <table id="adminTable"></table>
+            <div class="card">
+                <h3>Консултации – <span id="adminTableStage"></span></h3>
+
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:15px;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="adminClassFilter">Клас</label>
+                        <select id="adminClassFilter" onchange="renderAdminTable()">
+                            <option value="">Всички класове</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin:0;">
+                        <label for="adminShiftFilter">Смяна</label>
+                        <select id="adminShiftFilter" onchange="renderAdminTable()">
+                            <option value="">Всички смени</option>
+                            <option value="1">I смяна</option>
+                            <option value="2">II смяна</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin:0;">
+                        <label for="adminTeacherFilter">Търсене на учител</label>
+                        <input id="adminTeacherFilter" type="text"
+                               placeholder="Име..."
+                               oninput="renderAdminTable()">
+                    </div>
+                </div>
+
+                <div class="schedule-wrapper">
+                    <table id="adminTable"></table>
+                </div>
             </div>
         </div>
     </section>
 
-    <div class="footer-note">
+        <div class="footer-note">
         Данните се съхраняват в споделена база данни (Supabase).
     </div>
+</main>
+</div><!-- /app-shell -->
+
 <div id="myConsultationsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="myConsultationsTitle"><div class="modal modal-wide"><h3 id="myConsultationsTitle" class="modal-title">Моите консултации</h3><div id="myConsultationsList"></div><div class="modal-actions"><button class="btn-secondary" onclick="closeMyConsultations()">Затвори</button><button id="myPrintBtn" class="btn-primary" onclick="printMyConsultations()">🖨 Печат</button></div></div></div>
 
 <!-- ADD / EDIT MODAL -->

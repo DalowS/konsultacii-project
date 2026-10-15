@@ -73,3 +73,11 @@
   `select indexdef from pg_indexes where indexname='consultations_teacher_slot_uq';` → трябва `(teacher_id, day, shift, hour)`;
   `select proname from pg_proc where proname='slot_of';` → трябва 0 реда.
   Ако индексът съдържа `slot_of(shift, hour)` – миграция 0008 не е приложена и бъгът е в базата.
+
+## v2.9 – sidebar, настройки, регистрация само с @paisii.info
+
+Миграции (по ред, след съществуващите): `20261010000000_school_settings_users_domain.sql`, `20261011000000_free_shift_selection.sql`.
+- `20261011` е нужна, ако `20261009` е (или ще бъде) приложена: тя отхвърля гимназия в I смяна, прогимназия във II смяна и смесени консултации – против свободния избор на смяна. Безвредна е, ако `20261009` не е прилагана.
+- SQL проверка: `supabase/tests/v2_9_checks.sql` (ROLLBACK, всички редове `ok = true`) и `v2_6_slot_checks.sql`.
+- Ръчно с реален Supabase: регистрация с @gmail.com трябва да се откаже (съобщение от клиента и/или „Database error saving new user“ от Auth); смяна на парола; запис в „Настройки“ като admin и опит като teacher; „Потребители“ показва имейл/статус/дата.
+- По желание: Dashboard → Authentication → Hooks → *Before User Created* → `public.hook_before_user_created`.

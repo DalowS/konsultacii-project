@@ -24,7 +24,7 @@ end $$;
 do $$
 declare a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); c uuid := gen_random_uuid();
 begin
-  insert into auth.users(id, email) values (a, 'a@t'), (b, 'b@t'), (c, 'c@t');
+  insert into auth.users(id, email) values (a, 'a@paisii.info'), (b, 'b@paisii.info'), (c, 'c@paisii.info');
   insert into public.group_subjects(subject, enabled) values ('ТЕСТГРУПА', true) on conflict (subject) do update set enabled = true;
 
   -- 1/2: същ учител, същ предмет, различни класове, I/7 и II/1

@@ -38,8 +38,8 @@ declare
   shifts jsonb;
 begin
   insert into auth.users (id, email, raw_user_meta_data) values
-    (a, 'v26-a@example.invalid', '{"name":"ТЕСТ v2.6 А"}'),
-    (b, 'v26-b@example.invalid', '{"name":"ТЕСТ v2.6 Б"}');
+    (a, 'v26-a@paisii.info', '{"name":"ТЕСТ v2.6 А"}'),
+    (b, 'v26-b@paisii.info', '{"name":"ТЕСТ v2.6 Б"}');
 
   -- 5А не е задължително да е предварително създаден; новият тестов ред се отменя с ROLLBACK.
   insert into public.classes (name) values ('5А') on conflict (name) do nothing;

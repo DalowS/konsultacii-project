@@ -15,6 +15,18 @@ const auth = {
     },
     async signOut() { await sb.auth.signOut(); },
     async getSession() { return (await sb.auth.getSession()).data.session; },
+    // v2.9: смяна на парола. Първо повторна проверка на текущата парола със същия имейл,
+    // после updateUser. Паролите не се записват и не се логват никъде.
+    async changePassword(email, currentPassword, newPassword) {
+        const { error: reauthError } = await sb.auth.signInWithPassword({ email, password: currentPassword });
+        if (reauthError) {
+            const e = new Error("Текущата парола е грешна.");
+            e.code = "WRONG_CURRENT_PASSWORD";
+            throw e;
+        }
+        const { error } = await sb.auth.updateUser({ password: newPassword });
+        if (error) throw error;
+    },
     async loadProfile(user) {
         const { data, error } = await sb.from("teachers")
             .select("id,name,role").eq("id", user.id).maybeSingle();

@@ -10,12 +10,16 @@ const storage = {
     _classes: [],          // [{id,name}]
     _groupSubjects: [],    // [{id,subject,enabled}]
     _teachers: [],         // [{id,name,role}]
+    _settings: null,       // {school_name, academic_year, current_term} или null (още няма миграция/настройки)
+    _users: null,          // [{id,name,email,role,status,created_at}] само за админ; null = не е заредено
 
     getAll() { return this._cache; },
     getClassNames() { return this._classes.map(c => c.name); },
     getClasses() { return this._classes; },
     getGroupSubjectRows() { return this._groupSubjects; },
     getTeachers() { return this._teachers; },
+    getSettings() { return this._settings; },
+    getUsers() { return this._users; },
 
     async refresh() {
         const [consultations, classes, groups, teachers] = await Promise.all([
@@ -152,5 +156,46 @@ const storage = {
         if (error) throw error;
         await this.refresh();
         return data;
+    },
+
+    // v2.9: настройки на училището (един ред). Четат се от всички влезли; пишат се само през RPC (админ).
+    // Грешка при четене не бива да блокира графика (напр. миграцията още не е приложена) -> null.
+    async loadSettings() {
+        try {
+            const { data, error } = await sb.from("school_settings")
+                .select("school_name,academic_year,current_term").eq("id", 1).maybeSingle();
+            if (error) throw error;
+            this._settings = data || null;
+        } catch (error) {
+            console.error(error);
+            this._settings = null;
+        }
+        return this._settings;
+    },
+
+    async saveSettings(values) {
+        const { data, error } = await sb.rpc("admin_update_school_settings", {
+            p_school_name: values.school_name,
+            p_academic_year: values.academic_year,
+            p_current_term: values.current_term
+        });
+        if (error) throw error;
+        this._settings = {
+            school_name: data.school_name, academic_year: data.academic_year, current_term: data.current_term
+        };
+        return this._settings;
+    },
+
+    // v2.9: потребители с имейл/статус/дата – само админ (SECURITY DEFINER RPC, без service_role).
+    async loadUsers() {
+        try {
+            const { data, error } = await sb.rpc("admin_list_users");
+            if (error) throw error;
+            this._users = data || [];
+        } catch (error) {
+            console.error(error);
+            this._users = null;
+        }
+        return this._users;
     }
 };

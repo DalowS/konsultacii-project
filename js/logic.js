@@ -92,6 +92,83 @@
     };
 
     /* ------------------------------------------------------------------
+     * v2.9: регистрация, пароли, настройки на училището, заглавна лента.
+     * Всичко тук е само UX проверка – реалната защита е в базата/Auth
+     * (trigger за домейна, RPC за настройки, RLS).
+     * ------------------------------------------------------------------ */
+    const ALLOWED_EMAIL_DOMAIN = "paisii.info";
+
+    const normalizeEmail = v => String(v == null ? "" : v).trim().toLowerCase();
+
+    const isValidEmailShape = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizeEmail(v));
+    const isAllowedEmail = v => {
+        const e = normalizeEmail(v);
+        return isValidEmailShape(e) && /^[^@\s]+@paisii\.info$/.test(e) && e.endsWith("@" + ALLOWED_EMAIL_DOMAIN);
+    };
+
+    // Списък със съобщения (на български) за липсващите изисквания; празен = паролата е приемлива.
+    function passwordProblems(pw) {
+        const p = String(pw == null ? "" : pw), out = [];
+        if (p.length < 8) out.push("Паролата трябва да е поне 8 символа.");
+        if (!/\p{Lu}/u.test(p)) out.push("Паролата трябва да съдържа поне една главна буква.");
+        if (!/\p{Ll}/u.test(p)) out.push("Паролата трябва да съдържа поне една малка буква.");
+        if (!/\d/.test(p)) out.push("Паролата трябва да съдържа поне една цифра.");
+        return out;
+    }
+
+    // { ok, errors: [..], email } – email е нормализиран (trim + lowercase)
+    function validateRegistration({ name, email, password, password2 }) {
+        const errors = [], n = String(name || "").trim(), e = normalizeEmail(email);
+        if (!n) errors.push("Моля, въведете име и фамилия.");
+        else if (n.length < 3 || n.length > 100) errors.push("Името трябва да е между 3 и 100 символа.");
+        if (!e) errors.push("Моля, въведете имейл.");
+        else if (!isValidEmailShape(e)) errors.push("Въведете валиден имейл адрес.");
+        else if (!isAllowedEmail(e)) errors.push("Регистрацията е разрешена само с имейл от домейна @" + ALLOWED_EMAIL_DOMAIN + ".");
+        if (!password) errors.push("Моля, въведете парола.");
+        else errors.push(...passwordProblems(password));
+        if (!password2) errors.push("Моля, повторете паролата.");
+        else if (password && password !== password2) errors.push("Паролите не съвпадат.");
+        return { ok: errors.length === 0, errors, email: e, name: n };
+    }
+
+    function validatePasswordChange({ current, next, repeat }) {
+        const errors = [];
+        if (!current) errors.push("Моля, въведете текущата парола.");
+        if (!next) errors.push("Моля, въведете нова парола.");
+        else {
+            errors.push(...passwordProblems(next));
+            if (current && next === current) errors.push("Новата парола трябва да е различна от текущата.");
+        }
+        if (!repeat) errors.push("Моля, повторете новата парола.");
+        else if (next && next !== repeat) errors.push("Новата парола и повторението не съвпадат.");
+        return { ok: errors.length === 0, errors };
+    }
+
+    const TERMS = { I: "I срок", II: "II срок" };
+    const termLabel = t => TERMS[String(t || "").toUpperCase()] || "";
+    const roleLabel = r => r === "admin" ? "Администратор" : "Учител";
+    const USER_STATUS = { active: "Активен", pending: "Непотвърден имейл", blocked: "Блокиран" };
+    const userStatusLabel = s => USER_STATUS[s] || "—";
+
+    // Втори ред на лявата част на заглавната лента: "I срок · 2026/2027" (празно, ако няма настройки)
+    function termLine(settings) {
+        if (!settings) return "";
+        return [termLabel(settings.current_term), settings.academic_year].filter(Boolean).join(" · ");
+    }
+    // Дясна част: "Мария Петрова · Администратор"
+    const userLine = (name, role) => [String(name || "").trim(), name ? roleLabel(role) : ""].filter(Boolean).join(" · ");
+
+    function validateSettings({ school_name, academic_year, current_term }) {
+        const errors = [], n = String(school_name || "").trim(), y = String(academic_year || "").trim();
+        if (!n) errors.push("Въведете име на училището.");
+        else if (n.length > 150) errors.push("Името на училището е твърде дълго (до 150 символа).");
+        const m = y.match(/^(\d{4})\/(\d{4})$/);
+        if (!m || Number(m[2]) !== Number(m[1]) + 1) errors.push("Учебната година трябва да е във формат 2026/2027 (последователни години).");
+        if (!TERMS[String(current_term || "").toUpperCase()]) errors.push("Изберете срок (I или II).");
+        return { ok: errors.length === 0, errors, value: { school_name: n, academic_year: y, current_term: String(current_term || "").toUpperCase() } };
+    }
+
+    /* ------------------------------------------------------------------
      * ЕТАПИ – определят се само от номера на класа (без ново поле в базата)
      * ------------------------------------------------------------------ */
     const STAGES = {
@@ -264,7 +341,9 @@
     const api = { DAY_NAMES, dayToIndex, indexToDay, normalizeSubject, normalizeClasses,
                   compareClassNames, escapeHtml, csvCell, friendlyError, countOccupiedCells,
                   TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition,
-                  positionLabel, shiftText, formatTimeRange, shiftRangeLabel, normalizeParallel, buildClassName,
+                  positionLabel, shiftText, formatTimeRange, shiftRangeLabel,
+                  ALLOWED_EMAIL_DOMAIN, normalizeEmail, isValidEmailShape, isAllowedEmail, passwordProblems, validateRegistration,
+                  validatePasswordChange, termLabel, roleLabel, userStatusLabel, termLine, userLine, validateSettings, normalizeParallel, buildClassName,
                   STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords,
                   getOppositeShift, stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,
                   findTeacherConflict, evaluateSelection, summarizeSelection, describeClassConflict, classMarkers };

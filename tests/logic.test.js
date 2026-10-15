@@ -444,3 +444,80 @@ test("v2.6 тест 6: обратна посока – първо Прогимн
     assert.deepEqual(ev.blocked, []);
     assert.equal(ev.canSave, true);
 });
+
+/* ---- v2.9: регистрация, пароли, настройки, заглавна лента (чиста логика) ---- */
+test("v2.9: имейл – само @paisii.info, trim + lowercase, без заобикаляне", () => {
+    assert.equal(L.normalizeEmail("  Ivan@Paisii.INFO "), "ivan@paisii.info");
+    for (const ok of ["ivan@paisii.info", "maria@paisii.info", " IVAN@PAISII.INFO "]) assert.equal(L.isAllowedEmail(ok), true, ok);
+    for (const bad of ["a@gmail.com", "a@abv.bg", "a@yahoo.com", "a@outlook.com", "a@paisii.info.evil.com", "a@notpaisii.info",
+                       "a@sub.paisii.info", "paisii.info", "@paisii.info", "a b@paisii.info", "a@paisii.info@x.com", "", null, undefined])
+        assert.equal(L.isAllowedEmail(bad), false, String(bad));
+});
+
+test("v2.9: валидация на парола (8+, главна, малка, цифра)", () => {
+    assert.deepEqual(L.passwordProblems("Abcdef12"), []);
+    assert.deepEqual(L.passwordProblems("Парола123"), []);                    // и кирилица
+    assert.equal(L.passwordProblems("Ab1").length, 1);                        // кратка
+    assert.match(L.passwordProblems("abcdefg1").join(), /главна буква/);
+    assert.match(L.passwordProblems("ABCDEFG1").join(), /малка буква/);
+    assert.match(L.passwordProblems("Abcdefgh").join(), /цифра/);
+    assert.equal(L.passwordProblems("").length, 4);
+});
+
+test("v2.9: validateRegistration – име, имейл, парола, повторение", () => {
+    const ok = { name: "Иван Иванов", email: " IVAN@Paisii.info", password: "Abcdef12", password2: "Abcdef12" };
+    const r = L.validateRegistration(ok);
+    assert.equal(r.ok, true); assert.equal(r.email, "ivan@paisii.info");
+    assert.match(L.validateRegistration({ ...ok, email: "a@gmail.com" }).errors.join(), /само с имейл от домейна @paisii\.info/);
+    assert.match(L.validateRegistration({ ...ok, email: "не-имейл" }).errors.join(), /валиден имейл/);
+    assert.match(L.validateRegistration({ ...ok, name: "" }).errors.join(), /име и фамилия/);
+    assert.match(L.validateRegistration({ ...ok, name: "Ив" }).errors.join(), /между 3 и 100/);
+    assert.match(L.validateRegistration({ ...ok, password2: "Abcdef13" }).errors.join(), /не съвпадат/);
+    assert.match(L.validateRegistration({ ...ok, password2: "" }).errors.join(), /повторете/);
+    assert.equal(L.validateRegistration({ ...ok, password: "abc", password2: "abc" }).ok, false);
+});
+
+test("v2.9: validatePasswordChange", () => {
+    const ok = { current: "Old12345", next: "Newpass12", repeat: "Newpass12" };
+    assert.equal(L.validatePasswordChange(ok).ok, true);
+    assert.equal(L.validatePasswordChange({ current: "", next: "", repeat: "" }).errors.length, 3);   // всички задължителни
+    assert.match(L.validatePasswordChange({ ...ok, next: "short1A", repeat: "short1A" }).errors.join(), /поне 8/);
+    assert.match(L.validatePasswordChange({ ...ok, repeat: "Newpass13" }).errors.join(), /не съвпадат/);
+    assert.match(L.validatePasswordChange({ ...ok, next: "Old12345", repeat: "Old12345" }).errors.join(), /различна/);
+});
+
+test("v2.9: настройки на училището – валидация и заглавна лента", () => {
+    assert.equal(L.validateSettings({ school_name: " СУ ", academic_year: "2026/2027", current_term: "i" }).ok, true);
+    assert.deepEqual(L.validateSettings({ school_name: " СУ ", academic_year: "2026/2027", current_term: "i" }).value,
+        { school_name: "СУ", academic_year: "2026/2027", current_term: "I" });
+    assert.equal(L.validateSettings({ school_name: "", academic_year: "2026/2027", current_term: "I" }).ok, false);
+    assert.equal(L.validateSettings({ school_name: "x", academic_year: "2026/2028", current_term: "I" }).ok, false);   // не последователни
+    assert.equal(L.validateSettings({ school_name: "x", academic_year: "26/27", current_term: "I" }).ok, false);
+    assert.equal(L.validateSettings({ school_name: "x", academic_year: "2026/2027", current_term: "III" }).ok, false);
+    assert.equal(L.termLine({ current_term: "I", academic_year: "2026/2027" }), "I срок · 2026/2027");
+    assert.equal(L.termLine({ current_term: "II", academic_year: "2027/2028" }), "II срок · 2027/2028");
+    assert.equal(L.termLine(null), "");
+    assert.equal(L.userLine("Мария Петрова", "admin"), "Мария Петрова · Администратор");
+    assert.equal(L.userLine("Георги Иванов", "teacher"), "Георги Иванов · Учител");
+    assert.equal(L.userLine("", "admin"), "");
+    assert.equal(L.userStatusLabel("active"), "Активен");
+});
+
+test("v2.9 (SQL, статично): миграция 0010 – settings, RPC само за админ, домейн trigger; конфликтите не са пипани", () => {
+    const dir = __dirname + "/../supabase/migrations/";
+    const f = fs.readdirSync(dir).find(n => n.startsWith("20261010"));
+    assert.ok(f, "има миграция 20261010…");
+    const sql = fs.readFileSync(dir + f, "utf8");
+    const code = sql.replace(/--[^\n]*/g, "");
+    assert.match(code, /create table if not exists public\.school_settings/);
+    assert.match(code, /check \(id = 1\)/);                                          // една конфигурация
+    assert.match(code, /enable row level security/);
+    assert.match(code, /for select to authenticated/);                              // четене за влезли
+    assert.doesNotMatch(code, /for (insert|update|delete|all) to authenticated/);   // няма директен запис
+    assert.match(code, /admin_update_school_settings[\s\S]*public\.is_admin\(\)/);
+    assert.match(code, /admin_list_users[\s\S]*public\.is_admin\(\)/);
+    assert.match(code, /trigger auth_users_email_domain[\s\S]*on auth\.users/);
+    assert.match(code, /paisii\\\.info/);
+    assert.doesNotMatch(code, /service_role/);
+    assert.doesNotMatch(code, /_save_consultation|save_consultation|consultations_teacher_slot_uq|create or replace function public\.is_admin/);
+});

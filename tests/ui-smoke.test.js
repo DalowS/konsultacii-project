@@ -842,21 +842,6 @@ test("v2.8 (статично): shiftSelect не е заключен; конфл�
 });
 
 /* ===================== v2.8 визуален редизайн (само външен вид) ===================== */
-test("редизайн: горна навигация – График, Моите консултации, Администрация (админ), Изход; показва се само след вход", () => {
-    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-    const nav = html.match(/<div id="topNav"[\s\S]*?<\/header>/)[0];
-    for (const needle of ['onclick="showTeacherScreen()"', 'onclick="showMyConsultations()"', 'id="adminToolbarBlock"', 'onclick="showAdminScreen()"', 'onclick="logout()"', 'id="headerUser"', 'id="currentTeacher"'])
-        assert.ok(nav.includes(needle), needle);
-    assert.match(nav, /id="adminToolbarBlock" class="hidden"/);          // само за администратор (showTeacherScreen го показва)
-    const t = setup();
-    const hidden = () => t.run(`document.getElementById("topNav").classList.contains("hidden")`);
-    t.elements.topNav = { classList: { _h: true, toggle(c, on) { this._h = !!on; }, contains() { return this._h; }, add() {}, remove() {} } };
-    t.run(`showScreen("loginScreen")`);  assert.equal(hidden(), true);
-    t.run(`showScreen("teacherScreen")`); assert.equal(hidden(), false);
-    t.run(`showScreen("adminScreen")`);   assert.equal(hidden(), false);
-    t.run(`showScreen("loadingScreen")`); assert.equal(hidden(), true);
-});
-
 test("редизайн: ред „Консултации: …“ се изчислява от смяната (12:35–18:30 / 07:30–13:15); смяната остава свободна", () => {
     const t = setup();
     t.run(`document.getElementById("shiftSelect").value = "1"; updateViewIndicator()`);
@@ -893,4 +878,283 @@ test("редизайн (статично): всички id/onclick, нужни �
     assert.doesNotMatch(css, /animation|@keyframes/);
     assert.equal((html.match(/<\/head>/g) || []).length, 1);
     assert.equal((html.match(/<body>/g) || []).length, 1);
+});
+
+/* ===================== v2.9: header, sidebar, настройки, профил, регистрация ===================== */
+const html9 = () => fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+const css9 = () => fs.readFileSync(path.join(__dirname, "..", "css", "style.css"), "utf8");
+const SETTINGS = { school_name: "СУ „Св. Паисий Хилендарски“ – Пловдив", academic_year: "2026/2027", current_term: "I" };
+// фалшив classList със състояние – за проверка на видимост/скриване
+const realClassList = (el, initial = []) => {
+    const set = new Set(initial);
+    el.classList = { add: c => set.add(c), remove: c => set.delete(c), contains: c => set.has(c),
+                     toggle(c, on) { (on === undefined ? !set.has(c) : on) ? set.add(c) : set.delete(c); } };
+    return set;
+};
+
+test("v2.9 header: срок/година и име на училището идват от настройките, не са във HTML/JS", () => {
+    const t = setup();
+    t.run(`storage._settings = ${JSON.stringify(SETTINGS)}; renderHeader();`);
+    assert.equal(t.elements.headerTerm.textContent, "I срок · 2026/2027");
+    assert.equal(t.elements.headerSchool.textContent, SETTINGS.school_name);
+    // промяна в настройките -> заглавната лента следва
+    t.run(`storage._settings = {school_name:"Друго училище", academic_year:"2027/2028", current_term:"II"}; renderHeader();`);
+    assert.equal(t.elements.headerSchool.textContent, "Друго училище");
+    assert.equal(t.elements.headerTerm.textContent, "II срок · 2027/2028");
+    // без настройки (миграцията още не е приложена) – нищо измислено
+    t.run(`storage._settings = null; renderHeader();`);
+    assert.equal(t.elements.headerSchool.textContent, "");
+    assert.equal(t.elements.headerTerm.textContent, "");
+    // статично: нищо hard-coded
+    const html = html9(), code = ["app.js", "logic.js", "storage.js"].map(f => fs.readFileSync(path.join(__dirname, "..", "js", f), "utf8")).join("\n");
+    assert.doesNotMatch(html, /Св\. Паисий|Пловдив/);
+    assert.doesNotMatch(code.replace(/\/\/[^\n]*/g, ""), /Св\. Паисий|Пловдив|schoolName\s*=\s*["']/);
+    assert.match(html, /<div id="headerSchool" class="header-school"><\/div>/);
+    assert.doesNotMatch(html.match(/<h1>[^<]*<\/h1>/)[0], /20\d\d/);
+});
+
+test("v2.9 header: потребител „Име · Роля“ за администратор и учител", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-me", name:"Мария Петрова", role:"admin"}; currentTeacher = "Мария Петрова"; isAdmin = true; renderHeader();`);
+    assert.equal(t.elements.headerUser.textContent, "Мария Петрова · Администратор");
+    t.run(`currentUser = {id:"u-t", name:"Георги Иванов", role:"teacher"}; currentTeacher = "Георги Иванов"; isAdmin = false; renderHeader();`);
+    assert.equal(t.elements.headerUser.textContent, "Георги Иванов · Учител");
+    t.run(`currentUser = null; currentTeacher = ""; renderHeader();`);
+    assert.equal(t.elements.headerUser.textContent, "");
+});
+
+test("v2.9 header: училището е центрирано спрямо лентата (равни странични колони), навигацията не е в header-а", () => {
+    const css = css9(), html = html9();
+    assert.match(css, /\.header-inner \{[^}]*grid-template-columns: 1fr auto 1fr/);
+    assert.match(css, /\.header-school \{[^}]*justify-self: center/);
+    const header = html.match(/<header[\s\S]*?<\/header>/)[0];
+    assert.doesNotMatch(header, /showMyConsultations|showAdminScreen|showTeacherScreen/);
+    assert.match(header, /onclick="logout\(\)"/);
+});
+
+test("v2.9 sidebar: групи, елементи, запазени handler-и", () => {
+    const html = html9();
+    const side = html.match(/<aside id="sidebar"[\s\S]*?<\/aside>/)[0];
+    for (const needle of ["График", "Моите консултации", "Администрация", "Настройки", "Потребители", "Класове", "Профил", "Смяна на парола", "Изход",
+        "showTeacherScreen()", "showMyConsultations()", "showAdminScreen('settings')", "showAdminScreen('users')", "showAdminScreen('classes')", "showProfileScreen('password')", "logout()"])
+        assert.ok(side.includes(needle), needle);
+    assert.match(side, /id="adminToolbarBlock" class="nav-group hidden"/);     // администрацията е скрита по подразбиране
+    // старите контроли в изгледите са запазени
+    for (const id of ["classSelect", "shiftSelect", "scheduleTable", "viewIndicator", "adminTable", "classesAdmin", "teachersAdmin", "groupSubjectsContainer"])
+        assert.ok(html.includes(`id="${id}"`), id);
+});
+
+test("v2.9 sidebar: показва се само след вход; admin групата – само за admin; активен елемент", () => {
+    const t = setup();
+    const body = new Set();
+    t.run("document.body").classList = { add() {}, remove() {}, contains: c => body.has(c), toggle(c, on) { on ? body.add(c) : body.delete(c); } };
+    const adminNav = t.run('document.getElementById("adminToolbarBlock")'); const navSet = realClassList(adminNav, ["hidden"]);
+    t.run(`showScreen("loginScreen")`);   assert.equal(body.has("authed"), false);
+    t.run(`showScreen("loadingScreen")`); assert.equal(body.has("authed"), false);
+    t.run(`isAdmin = false; showTeacherScreen()`);
+    assert.equal(body.has("authed"), true);
+    assert.equal(navSet.has("hidden"), true, "teacher не вижда Администрация");
+    t.run(`currentUser = {id:"u-me", name:"Мария", role:"admin"}; isAdmin = true; showTeacherScreen()`);
+    assert.equal(navSet.has("hidden"), false, "admin вижда Администрация");
+    t.run(`showScreen("loginScreen")`); assert.equal(body.has("authed"), false);
+});
+
+test("v2.9 роли: teacher не отваря администрацията (UX), реалната защита е RLS/RPC", async () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Учител", role:"teacher"}; isAdmin = false; globalThis.__shown = []; const _s = showScreen; showScreen = id => { __shown.push(id); _s(id); };`);
+    t.run(`showAdminScreen("settings"); showAdminScreen("users"); showAdminScreen();`);
+    assert.deepEqual([...t.run("__shown")], [], "teacher не получава adminScreen");
+    // и записът на настройки/четенето на потребителите минава през RPC с проверка is_admin на сървъра
+    const calls = [];
+    t.run(`sb = { rpc: async (n, a) => { globalThis.__rpc = (globalThis.__rpc || []).concat([[n, a]]); return { data: null, error: { message: "Само администратор", code: "CS001" } }; } }`);
+    await assert.rejects(() => t.run(`storage.saveSettings(${JSON.stringify(SETTINGS)})`));
+    assert.equal(t.run("__rpc")[0][0], "admin_update_school_settings");
+    await t.run(`storage.loadUsers()`);                                   // сървърен отказ -> няма данни, без изключение
+    assert.equal(t.run("storage.getUsers()"), null);
+});
+
+test("v2.9 мобилно меню: hamburger отваря/затваря; избор в менюто и Escape затварят", () => {
+    const t = setup();
+    const body = new Set();
+    t.run("document.body").classList = { add() {}, remove() {}, contains: c => body.has(c), toggle(c, on) { on ? body.add(c) : body.delete(c); } };
+    t.run("toggleSidebar()");  assert.equal(body.has("sidebar-open"), true);
+    t.run("toggleSidebar()");  assert.equal(body.has("sidebar-open"), false);
+    t.run("toggleSidebar()");  t.run("showTeacherScreen()");                         // избор в менюто -> затваря
+    assert.equal(body.has("sidebar-open"), false);
+    t.run("toggleSidebar()");  t.run("showMyConsultations()");  assert.equal(body.has("sidebar-open"), false);
+    t.run("closeMyConsultations()");
+    t.run("toggleSidebar()");
+    t.listeners.keydown.forEach(fn => fn({ key: "Escape" }));
+    assert.equal(body.has("sidebar-open"), false);
+    // aria
+    assert.match(html9(), /id="menuToggle"[^>]*aria-controls="sidebar"[^>]*aria-expanded="false"/);
+});
+
+test("v2.9 responsive CSS: sidebar постоянен на desktop, зад hamburger под 900px; без градиенти/анимации", () => {
+    const css = css9();
+    assert.match(css, /\.sidebar \{[^}]*width: 236px/);                       // 220–250px
+    assert.match(css, /@media \(max-width: 900px\)[\s\S]*body\.authed \.menu-toggle \{ display: inline-flex/);
+    assert.match(css, /body\.authed \.sidebar \{[^}]*transform: translateX\(-102%\)/);
+    assert.match(css, /body\.sidebar-open \.sidebar \{ transform: none/);
+    assert.match(css, /\.container \{[^}]*min-width: 0/);                     // основното съдържание се свива без да счупи страницата
+    assert.doesNotMatch(css, /gradient|animation|@keyframes|transition/);
+});
+
+test("v2.9 настройки: валидация преди запис, RPC с параметри, заглавната лента се обновява", async () => {
+    const t = setup();
+    t.run(`sb = { rpc: async (n, a) => { (globalThis.__rpc = globalThis.__rpc || []).push([n, a]); return { data: { school_name: a.p_school_name, academic_year: a.p_academic_year, current_term: a.p_current_term }, error: null }; } }`);
+    const set = (n, y, term) => t.run(`document.getElementById("settingsSchoolName").value = ${JSON.stringify(n)}; document.getElementById("settingsYear").value = ${JSON.stringify(y)}; document.getElementById("settingsTerm").value = ${JSON.stringify(term)};`);
+    set("", "2026/2027", "I");
+    await t.run("saveSchoolSettings()");
+    assert.equal(t.run("globalThis.__rpc"), undefined, "без име – няма заявка");
+    assert.match(t.elements.adminStatus.textContent, /име на училището/);
+    set("Тест", "2026/2028", "I");
+    await t.run("saveSchoolSettings()");
+    assert.equal(t.run("globalThis.__rpc"), undefined);
+    assert.match(t.elements.adminStatus.textContent, /последователни години/);
+    set("  Ново училище ", "2027/2028", "II");
+    await t.run("saveSchoolSettings()");
+    const [name, args] = t.run("__rpc")[0];
+    assert.equal(name, "admin_update_school_settings");
+    assert.deepEqual({ ...args }, { p_school_name: "Ново училище", p_academic_year: "2027/2028", p_current_term: "II" });
+    assert.equal(t.elements.headerSchool.textContent, "Ново училище");
+    assert.equal(t.elements.headerTerm.textContent, "II срок · 2027/2028");
+    assert.match(t.elements.adminStatus.textContent, /запазени/);
+});
+
+test("v2.9 смяна на парола: валидация, повторна проверка на текущата, после updateUser; полетата се чистят; паролите не се логват", async () => {
+    const t = setup();
+    const logs = [];
+    t.ctx.console = { log: (...a) => logs.push(a), error: (...a) => logs.push(a), warn: (...a) => logs.push(a) };
+    t.run(`currentUser = {id:"u-me", name:"Мария", role:"admin", email:"maria@paisii.info"}; isAdmin = true;
+           globalThis.__calls = []; sb = { auth: {
+             signInWithPassword: async a => { __calls.push(["signIn", a.email]); return { error: a.password === "Old12345" ? null : { message: "Invalid login credentials" } }; },
+             updateUser: async a => { __calls.push(["update"]); return { error: null }; } } };`);
+    const fill = (c, n, r) => t.run(`pwCurrent.value=${JSON.stringify(c)}; pwNew.value=${JSON.stringify(n)}; pwRepeat.value=${JSON.stringify(r)};`.replace(/pw(Current|New|Repeat)\.value/g, m => `document.getElementById("${m.slice(0, -6)}").value`));
+    fill("", "", ""); await t.run("changePassword()");
+    assert.deepEqual([...t.run("__calls")], []); assert.match(t.elements.passwordMessage.textContent, /текущата парола/);
+    fill("Old12345", "weakpass", "weakpass"); await t.run("changePassword()");
+    assert.deepEqual([...t.run("__calls")], []); assert.match(t.elements.passwordMessage.textContent, /главна буква/);
+    fill("Old12345", "Newpass12", "Newpass13"); await t.run("changePassword()");
+    assert.deepEqual([...t.run("__calls")], []); assert.match(t.elements.passwordMessage.textContent, /не съвпадат/);
+    fill("Wrong1234", "Newpass12", "Newpass12"); await t.run("changePassword()");        // грешна текуща
+    assert.deepEqual(t.run("__calls").map(c => c[0]), ["signIn"]); assert.match(t.elements.passwordMessage.textContent, /Текущата парола е грешна/);
+    t.run("__calls.length = 0");
+    fill("Old12345", "Newpass12", "Newpass12"); await t.run("changePassword()");        // успех
+    assert.deepEqual(t.run("__calls").map(c => c[0]), ["signIn", "update"]);
+    assert.equal(t.run("__calls")[0][1], "maria@paisii.info");
+    assert.match(t.elements.passwordMessage.textContent, /сменена успешно/);
+    for (const id of ["pwCurrent", "pwNew", "pwRepeat"]) assert.equal(t.elements[id].value, "");
+    assert.ok(!JSON.stringify(logs).match(/Old12345|Newpass12|Wrong1234/), "паролите не са в логовете");
+});
+
+test("v2.9 регистрация: само @paisii.info; повторение на паролата; нормализиране; сървърен отказ", async () => {
+    const t = setup();
+    t.run(`globalThis.__su = []; sb = { auth: { signUp: async a => { __su.push(a); return { data: { session: null }, error: null }; } } }; authMode = "register";`);
+    const fill = (name, email, pw, pw2) => t.run(`document.getElementById("regName").value=${JSON.stringify(name)}; document.getElementById("authEmail").value=${JSON.stringify(email)}; document.getElementById("authPassword").value=${JSON.stringify(pw)}; document.getElementById("regPassword2").value=${JSON.stringify(pw2)};`);
+    for (const bad of ["ivan@gmail.com", "ivan@abv.bg", "ivan@yahoo.com", "ivan@outlook.com"]) {
+        fill("Иван Иванов", bad, "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
+        assert.equal(t.run("__su.length"), 0, bad + " не стига до Supabase");
+        assert.match(t.elements.authMessage.textContent, /@paisii\.info/);
+    }
+    fill("Иван Иванов", "ivan@paisii.info", "Abcdef12", "Abcdef13"); await t.run("submitAuth()");
+    assert.equal(t.run("__su.length"), 0); assert.match(t.elements.authMessage.textContent, /не съвпадат/);
+    fill("Иван Иванов", "ivan@paisii.info", "abcdefgh", "abcdefgh"); await t.run("submitAuth()");
+    assert.equal(t.run("__su.length"), 0);
+    fill(" Иван Иванов ", "  IVAN@Paisii.INFO ", "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
+    assert.equal(t.run("__su.length"), 1);
+    assert.equal(t.run("__su[0].email"), "ivan@paisii.info");
+    assert.equal(t.run("__su[0].options.data.name"), "Иван Иванов");
+    // сървърът (trigger) отказва -> ясно съобщение
+    t.run(`authMode = "register"; sb.auth.signUp = async () => ({ data: null, error: { message: "Database error saving new user" } });`);
+    fill("Иван Иванов", "ivan@paisii.info", "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
+    assert.match(t.elements.authMessage.textContent, /само с имейл от домейна @paisii\.info/);
+    // формата има „Повтори паролата“
+    assert.match(html9(), /id="regPassword2"[^>]*type="password"|type="password"[^>]*id="regPassword2"|<input id="regPassword2" type="password"/);
+});
+
+test("v2.9 вход: съществуващи акаунти с други домейни не се блокират от клиента", async () => {
+    const t = setup();
+    t.run(`globalThis.__si = []; sb = { auth: { signInWithPassword: async a => { __si.push(a); return { error: null }; } } }; authMode = "login";
+           document.getElementById("authEmail").value = " Old.User@Gmail.com "; document.getElementById("authPassword").value = "x";`);
+    await t.run("submitAuth()");
+    assert.equal(t.run("__si.length"), 1);
+    assert.equal(t.run("__si[0].email"), "old.user@gmail.com");
+});
+
+test("v2.9 профил: име, имейл, роля; ролята не може да се променя оттук", () => {
+    const t = setup();
+    t.run(`currentUser = {id:"u-t", name:"Георги Иванов", role:"teacher", email:"georgi@paisii.info"}; showProfileScreen("profile");`);
+    assert.equal(t.elements.profileName.textContent, "Георги Иванов");
+    assert.equal(t.elements.profileEmail.textContent, "georgi@paisii.info");
+    assert.equal(t.elements.profileRole.textContent, "Учител");
+    const section = html9().match(/<div id="profileSection"[\s\S]*?<\/div>\s*<div id="passwordSection"/)[0];
+    assert.doesNotMatch(section, /<select|<input/);                          // няма контроли за роля
+    assert.match(html9(), /onclick="showProfileScreen\('password'\)"/);
+});
+
+test("v2.9 администрация → Потребители: име, имейл, роля, статус, дата; без имейл – „—“", () => {
+    const t = setup();
+    t.run(`storage._users = [{id:"u-t", name:"Учител", email:"georgi@paisii.info", role:"teacher", status:"active", created_at:"2026-09-03T08:00:00Z"},
+                             {id:"u-admin", name:"Админ", email:"maria@paisii.info", role:"admin", status:"pending", created_at:"2026-10-01T08:00:00Z"}]; renderTeachersAdmin();`);
+    const h = t.elements.teachersAdmin.innerHTML;
+    for (const x of ["Име", "Имейл", "Роля", "Статус", "Регистриран", "georgi@paisii.info", "maria@paisii.info", "Активен", "Непотвърден имейл"]) assert.ok(h.includes(x), x);
+    t.run(`storage._users = null; renderTeachersAdmin();`);
+    assert.match(t.elements.teachersAdmin.innerHTML, /<td class="cell-email">—<\/td>/);
+});
+
+test("v2.9 администрация: Настройки/Потребители/Класове/Консултации са отделни секции, всички със запазени функции", () => {
+    const html = html9();
+    for (const sec of ["settings", "users", "classes", "consultations"]) assert.ok(html.includes(`data-admin-section="${sec}"`), sec);
+    const t = setup();
+    t.run(`showAdminScreen("classes")`);
+    assert.equal(t.run("adminSection"), "classes");
+    assert.match(t.elements.adminSectionTitle.textContent, /Администрация · Класове/);
+    assert.match(t.elements.classesAdmin.innerHTML, /Прогимназиален/);        // изгледът за класове е непроменен
+    t.run(`showAdminScreen("consultations")`);
+    assert.ok(t.elements.adminTable.innerHTML.length > 0);
+    // етапите 5-7 / 8-12 за класовете са непроменени
+    assert.equal(t.run(`stageOfClass("7В")`), "progymnasium");
+    assert.equal(t.run(`stageOfClass("8А")`), "gymnasium");
+});
+
+test("v2.9: бизнес правилата са непроменени (свободна смяна, слот day+shift+hour, часове по смяна, без правило от 0009 във фронтенда)", () => {
+    const t = setup();
+    assert.equal(range(setSchedule(t, "8А", 1))[0], "12:35–13:15");
+    assert.equal(range(setSchedule(t, "8А", 2))[0], "07:30–08:10");
+    const app = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8");
+    assert.doesNotMatch(app, /get_consultation_stage_shifts|stage_shifts|regular_shift/);
+    assert.doesNotMatch(html9().match(/<select id="shiftSelect"[^>]*>/)[0], /disabled|readonly|hidden/i);
+    assert.equal(t.run(`evaluateSelection(storage.getAll(), {day:"Понеделник",shift:2,hour:1,subject:"Математика",teacherId:"u-t",classes:["8А"],groupSubjects:[]}).canSave`), true);
+});
+
+/* ===================== v2.9 – завършване ===================== */
+test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна) и е последната; 20261010 има домейн trigger и RLS", () => {
+    const dir = path.join(__dirname, "..", "supabase", "migrations");
+    const files = fs.readdirSync(dir).filter(f => f.endsWith(".sql")).sort();
+    assert.equal(files[files.length - 1], "20261011000000_free_shift_selection.sql");
+    const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+    const m11 = strip(fs.readFileSync(path.join(dir, "20261011000000_free_shift_selection.sql"), "utf8"));
+    assert.match(m11, /create or replace function public\._save_consultation\(/);
+    assert.doesNotMatch(m11, /consultation_stage_of_class|_get_consultation_stage_shifts|v_expected_shift|v_regular_shift|stage_count/);
+    // слотът остава (ден, смяна, час)
+    assert.match(m11, /c\.shift = p_shift and c\.hour = p_hour/);
+    assert.match(m11, /o\.day = p_day and o\.shift = p_shift and o\.hour = p_hour/);
+    // старите миграции не са променяни: 0009 остава (не е редактирана), 0011 я надгражда
+    assert.ok(files.includes("20261009000000_stage_consultation_shifts.sql"));
+    const m10 = strip(fs.readFileSync(path.join(dir, "20261010000000_school_settings_users_domain.sql"), "utf8"));
+    assert.match(m10, /before insert or update of email on auth\.users/);
+    assert.match(m10, /enable row level security/);
+    assert.match(m10, /revoke insert, update, delete[^;]*on public\.school_settings from authenticated/);
+    assert.doesNotMatch(m10 + m11, /service_role/);
+    assert.match(fs.readFileSync(path.join(__dirname, "..", "supabase", "tests", "v2_9_checks.sql"), "utf8"), /rollback;/);
+});
+
+test("v2.9 мобилно меню: има видим бутон за затваряне, който затваря менюто", () => {
+    const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+    assert.match(html, /<button type="button" class="nav-close"[^>]*onclick="closeSidebar\(\)"/);
+    const t = setup();
+    t.run(`setSidebarOpen(true)`);
+    t.run(`closeSidebar()`);
+    assert.equal(t.run(`document.body.classList.contains("sidebar-open")`), false);
 });

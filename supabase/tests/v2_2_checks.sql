@@ -41,9 +41,9 @@ declare
 begin
   -- временни потребители (handle_new_user ще създаде teachers редове)
   insert into auth.users (id, email, raw_user_meta_data) values
-    (a, 'tmp-a@example.invalid', '{"name":"ТЕСТ А"}'),
-    (b, 'tmp-b@example.invalid', '{"name":"ТЕСТ Б"}'),
-    (c, 'tmp-c@example.invalid', '{"name":"ТЕСТ В"}');
+    (a, 'tmp-a@paisii.info', '{"name":"ТЕСТ А"}'),
+    (b, 'tmp-b@paisii.info', '{"name":"ТЕСТ Б"}'),
+    (c, 'tmp-c@paisii.info', '{"name":"ТЕСТ В"}');
   select id into adm from public.teachers where role = 'admin' limit 1;
   select name into c1 from public.classes order by id limit 1;
   select name into c2 from public.classes order by id offset 1 limit 1;
