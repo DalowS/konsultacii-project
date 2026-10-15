@@ -601,11 +601,24 @@ async function submitAuth() {
     }
 }
 
+
 async function logout() {
-    try { await auth.signOut(); } catch (error) { console.error(error); }
+    try {
+        await auth.signOut();
+    } catch (error) {
+        console.error(error);
+    }
+
     teardown();
+
+    // Връщаме формата в режим „Вход“
+    if (authMode !== "login") {
+        toggleAuthMode();
+    }
+
     showScreen("loginScreen");
 }
+
 
 /*
     ==========================================================

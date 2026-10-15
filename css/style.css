@@ -462,7 +462,13 @@ th {
     border-radius: var(--radius);
     padding: 8px 10px;
 }
-
+#loginScreen {
+    width: 100%;
+    max-width: 450px;
+    
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
 .modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -471,7 +477,9 @@ th {
     padding: 12px 20px 0;
     border-top: 1px solid var(--line-soft);
 }
-
+main.container:has(#loginScreen:not(.hidden)) {
+    align-items: center;
+}
 .modal-wide { max-width: 980px; }
 
 .admin-login { max-width: 450px; margin: 20px auto; }
