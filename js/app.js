@@ -468,6 +468,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById("authSubmit").disabled = true;
         return;
     }
+    initIcons();
 
     // Не правим await на Supabase заявки директно в callback-а (известен deadlock) – отлагаме.
     sb.auth.onAuthStateChange((event, session) => {
@@ -1259,7 +1260,11 @@ function printScheduleReport() {
         ["Учител", "Предмет", "Класове", "Ден", "Смяна", "Час", "Място"],
         records.map(r => [r.teacher, r.subject, r.classes.join(", "), r.day, shiftText(r.shift), hourLabel(r), r.location || ""]));
 }
-
+function initIcons() {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
 // Печат на ВСИЧКИ консултации на влезлия учител (двата етапа, двете смени)
 function printMyConsultations() {
     const records = myRecords();

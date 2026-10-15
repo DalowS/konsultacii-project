@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>График за консултации</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
@@ -23,7 +25,9 @@
         <div class="header-user">
             <span id="headerUser" class="user-name"></span>
             <span id="currentTeacher" class="sr-only"></span>
+            <!--
             <button type="button" class="nav-btn nav-exit" onclick="logout()">Изход</button>
+            -->
         </div>
     </div>
 </header>
@@ -31,33 +35,73 @@
 <div class="app-shell">
 
 <aside id="sidebar" class="sidebar" aria-label="Основна навигация">
-    <nav>
-        <button type="button" class="nav-close" aria-label="Затвори менюто" onclick="closeSidebar()">✕ Затвори менюто</button>
-        <div id="sidebarUser" class="nav-user"></div>
-        <div class="nav-group">
-            <div class="nav-heading">Консултации</div>
-            <button type="button" class="nav-item" data-nav="schedule" onclick="showTeacherScreen()">График</button>
-            <button type="button" class="nav-item" data-nav="mine" onclick="showMyConsultations()">Моите консултации</button>
-        </div>
+   <nav>
+    <button type="button" class="nav-close" aria-label="Затвори менюто" onclick="closeSidebar()">
+        <i data-lucide="x"></i>
+        <span>Затвори менюто</span>
+    </button>
 
-        <div id="adminToolbarBlock" class="nav-group hidden">
-            <div class="nav-heading">Администрация</div>
-            <button type="button" class="nav-item" data-nav="admin-settings" onclick="showAdminScreen('settings')">Настройки</button>
-            <button type="button" class="nav-item" data-nav="admin-users" onclick="showAdminScreen('users')">Потребители</button>
-            <button type="button" class="nav-item" data-nav="admin-classes" onclick="showAdminScreen('classes')">Класове</button>
-            <button type="button" class="nav-item" data-nav="admin-consultations" onclick="showAdminScreen('consultations')">Консултации</button>
-        </div>
+    <div id="sidebarUser" class="nav-user"></div>
 
-        <div class="nav-group">
-            <div class="nav-heading">Профил</div>
-            <button type="button" class="nav-item" data-nav="profile" onclick="showProfileScreen('profile')">Моят профил</button>
-            <button type="button" class="nav-item" data-nav="password" onclick="showProfileScreen('password')">Смяна на парола</button>
-        </div>
+    <div class="nav-group">
+        <div class="nav-heading">Консултации</div>
 
-        <div class="nav-group nav-bottom">
-            <button type="button" class="nav-item nav-logout" onclick="logout()">Изход</button>
-        </div>
-    </nav>
+        <button type="button" class="nav-item" data-nav="schedule" onclick="showTeacherScreen()">
+            <i data-lucide="calendar-days"></i>
+            <span>График</span>
+        </button>
+
+        <button type="button" class="nav-item" data-nav="mine" onclick="showMyConsultations()">
+            <i data-lucide="calendar-clock"></i>
+            <span>Моите консултации</span>
+        </button>
+    </div>
+
+    <div id="adminToolbarBlock" class="nav-group hidden">
+        <div class="nav-heading">Администрация</div>
+
+        <button type="button" class="nav-item" data-nav="admin-settings" onclick="showAdminScreen('settings')">
+            <i data-lucide="settings"></i>
+            <span>Настройки</span>
+        </button>
+
+        <button type="button" class="nav-item" data-nav="admin-users" onclick="showAdminScreen('users')">
+            <i data-lucide="users"></i>
+            <span>Потребители</span>
+        </button>
+
+        <button type="button" class="nav-item" data-nav="admin-classes" onclick="showAdminScreen('classes')">
+            <i data-lucide="school"></i>
+            <span>Класове</span>
+        </button>
+
+        <button type="button" class="nav-item" data-nav="admin-consultations" onclick="showAdminScreen('consultations')">
+            <i data-lucide="clipboard-list"></i>
+            <span>Консултации</span>
+        </button>
+    </div>
+
+    <div class="nav-group">
+        <div class="nav-heading">Профил</div>
+
+        <button type="button" class="nav-item" data-nav="profile" onclick="showProfileScreen('profile')">
+            <i data-lucide="user-round"></i>
+            <span>Моят профил</span>
+        </button>
+
+        <button type="button" class="nav-item" data-nav="password" onclick="showProfileScreen('password')">
+            <i data-lucide="key-round"></i>
+            <span>Смяна на парола</span>
+        </button>
+    </div>
+
+    <div class="nav-group nav-bottom">
+        <button type="button" class="nav-item nav-logout" onclick="logout()">
+            <i data-lucide="log-out"></i>
+            <span>Изход</span>
+        </button>
+    </div>
+</nav>
 </aside>
 <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
 
