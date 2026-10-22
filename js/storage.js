@@ -66,14 +66,23 @@ const storage = {
 
     // Една заявка с join (consultation + teacher + classes); страниране заради лимита от 1000.
     async _fetchConsultations() {
-        const out = [], size = 1000;
+       const out = [], size = 1000;
+
         for (let from = 0; ; from += size) {
-            const rows = await this._q(sb.from("consultations")
-                .select("id,teacher_id,day,shift,hour,subject,location,teachers(name),consultation_classes(classes(name))")
-                .order("id").range(from, from + size - 1));
+            const rows = await this._q(
+                sb.from("consultations")
+                    .select(
+                        "id,teacher_id,day,shift,hour,subject,location,teachers!consultations_teacher_id_fkey(name),consultation_classes(classes(name))"
+                    )
+                    .order("id")
+                    .range(from, from + size - 1)
+            );
+
             out.push(...rows);
+
             if (rows.length < size) break;
         }
+
         return out;
     },
 
