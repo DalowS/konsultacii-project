@@ -1,4 +1,5 @@
 /* Приложение "График за консултации" – UI слой (данни: storage.js, вход: auth.js, логика: logic.js). */
+console.log("APP.JS TEST VERSION 2026-10-22");
 "use strict";
 
 const CONFIG = {
