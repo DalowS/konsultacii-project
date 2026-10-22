@@ -72,8 +72,8 @@ const storage = {
             const rows = await this._q(
                 sb.from("consultations")
                     .select(
-                        "id,teacher_id,day,shift,hour,subject,location,teachers!consultations_teacher_id_fkey(name),consultation_classes(classes(name))"
-                    )
+    "id,teacher_id,day,shift,hour,subject,location,teachers!consultations_teacher_id_fkey(name),consultation_classes(classes(name))"
+)
                     .order("id")
                     .range(from, from + size - 1)
             );
