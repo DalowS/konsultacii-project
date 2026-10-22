@@ -544,7 +544,11 @@ async function handleSession(session) {
         startRealtime();
         showTeacherScreen();
     } catch (error) {
-        console.error(error);
+        console.error("Грешка при зареждане след вход:", error);
+         console.error("Код:", error?.code);
+console.error("Съобщение:", error?.message);
+console.error("Детайли:", error?.details);
+console.error("Hint:", error?.hint);
         teardown();
         showScreen("loginScreen");
         showAuthMessage(friendlyError(error, "Неуспешно зареждане на профила. Моля, опитайте отново."), "error");
