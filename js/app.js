@@ -520,6 +520,70 @@ function queueSession(session) {
 }
 
 async function handleSession(session) {
+    console.log("[LOGIN DEBUG] handleSession:", session ? "Има сесия" : "Няма сесия");
+
+    if (!session) {
+        console.log("[LOGIN DEBUG] Няма сесия — показва се login");
+        teardown();
+        showScreen("loginScreen");
+        return;
+    }
+
+    if (currentUser && currentUser.id === session.user.id) {
+        console.log("[LOGIN DEBUG] Потребителят вече е зареден");
+        return;
+    }
+
+    showScreen("loadingScreen");
+
+    try {
+        console.log("[LOGIN DEBUG] 1. Зареждане на профила");
+        const profile = await auth.loadProfile(session.user);
+        console.log("[LOGIN DEBUG] 2. Профилът е зареден:", profile);
+
+        applyProfile(profile);
+
+        if (profile.blocked) {
+            console.log("[LOGIN DEBUG] Профилът е блокиран:", profile.blocked_reason);
+            showBlockedScreen(profile);
+            return;
+        }
+
+        if (isSuperAdmin && !activeSchool) {
+            console.log("[LOGIN DEBUG] Зареждане на училищата");
+            startRealtime();
+            await showSchoolsScreen();
+            return;
+        }
+
+        console.log("[LOGIN DEBUG] 3. Зареждане на данните за училището");
+        await loadSchoolData();
+        console.log("[LOGIN DEBUG] 4. Данните са заредени");
+
+        startRealtime();
+        showTeacherScreen();
+        console.log("[LOGIN DEBUG] 5. Екранът на преподавателя е показан");
+
+    } catch (error) {
+        console.error("[LOGIN DEBUG] Грешка:", error);
+        console.error("[LOGIN DEBUG] Код:", error?.code);
+        console.error("[LOGIN DEBUG] Съобщение:", error?.message);
+        console.error("[LOGIN DEBUG] Детайли:", error?.details);
+
+        teardown();
+        showScreen("loginScreen");
+        showAuthMessage(
+            friendlyError(error, "Неуспешно зареждане на профила. Моля, опитайте отново."),
+            "error"
+        );
+
+        sb.auth.signOut().catch(err =>
+            console.error("[LOGIN DEBUG] Грешка при signOut:", err)
+        );
+    }
+}
+
+async function handleSession(session) {
     if (!session) {
         teardown();
         showScreen("loginScreen");
