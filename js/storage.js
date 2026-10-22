@@ -69,7 +69,9 @@ const storage = {
         const out = [], size = 1000;
         for (let from = 0; ; from += size) {
             const rows = await this._q(sb.from("consultations")
-                .select("id,teacher_id,day,shift,hour,subject,location,teachers!consultations_teacher_id_fkey(name),consultation_classes(classes(name))")
+                
+.select("id,teacher_id,day,shift,hour,subject,location,teachers!consultations_teacher_school_fk(name),consultation_classes(classes(name))")
+
                 .order("id").range(from, from + size - 1));
             out.push(...rows);
             if (rows.length < size) break;
