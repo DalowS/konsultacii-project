@@ -12,6 +12,19 @@ const storage = {
     _teachers: [],         // [{id,name,role}]
     _settings: null,       // {school_name, academic_year, current_term} или null (още няма миграция/настройки)
     _users: null,          // [{id,name,email,role,status,created_at}] само за админ; null = не е заредено
+    _schedule: null,       // v3.0: {mode, intervals:[{shift,position,start,end,used}]} на активното училище
+    _schools: null,        // v3.0: списък училища (само супер админ)
+    _domains: null,        // v3.0: домейни на активното/избраното училище (само админ)
+
+    getSchedule() { return this._schedule; },
+    getSchools() { return this._schools; },
+    getDomains() { return this._domains; },
+
+    // v3.0: смяна на училище/сесия -> нищо от предишното училище не бива да остава в кеша.
+    resetCache() {
+        this._cache = []; this._classes = []; this._groupSubjects = []; this._teachers = [];
+        this._settings = null; this._users = null; this._schedule = null; this._domains = null;
+    },
 
     getAll() { return this._cache; },
     getClassNames() { return this._classes.map(c => c.name); },
@@ -122,14 +135,21 @@ const storage = {
     },
 
     async setGroupSubject(subject, enabled) {
-        const { error } = await sb.from("group_subjects")
-            .upsert({ subject, enabled }, { onConflict: "subject" });
+        const { error } = await sb.rpc("admin_set_group_subject", { p_subject: subject, p_enabled: !!enabled });
         if (error) throw error;
     },
 
+    // v3.0: името се сменя директно (RLS/trigger), ролята – само през admin_set_member_role.
     async updateTeacher(id, patch) {
-        const { error } = await sb.from("teachers").update(patch).eq("id", id);
-        if (error) throw error;
+        const { role, ...rest } = patch || {};
+        if (Object.keys(rest).length) {
+            const { error } = await sb.from("teachers").update(rest).eq("id", id);
+            if (error) throw error;
+        }
+        if (role !== undefined) {
+            const { error } = await sb.rpc("admin_set_member_role", { p_user: id, p_role: role });
+            if (error) throw error;
+        }
     },
 
     // Класове – валидация и нормализация и на сървъра (RPC); изтриването е защитено от trigger.
@@ -163,7 +183,7 @@ const storage = {
     async loadSettings() {
         try {
             const { data, error } = await sb.from("school_settings")
-                .select("school_name,academic_year,current_term").eq("id", 1).maybeSingle();
+                .select("school_name,academic_year,current_term").limit(1).maybeSingle();   // RLS: само реда на активното училище
             if (error) throw error;
             this._settings = data || null;
         } catch (error) {
@@ -197,5 +217,101 @@ const storage = {
             this._users = null;
         }
         return this._users;
+    },
+
+    // ---------- v3.0: график на училището ----------
+    async loadSchedule(withUsage) {
+        try {
+            const { data, error } = await sb.rpc("get_school_schedule", { p_with_usage: !!withUsage });
+            if (error) throw error;
+            this._schedule = data || null;
+        } catch (error) {
+            console.error(error);
+            this._schedule = null;   // logic.js остава на подразбиращите се две смени
+        }
+        return this._schedule;
+    },
+    async scheduleImpact(mode) {
+        const { data, error } = await sb.rpc("admin_schedule_change_impact", { p_mode: mode });
+        if (error) throw error;
+        return data;
+    },
+    async setScheduleMode(mode, confirm) {
+        const { error } = await sb.rpc("admin_set_schedule_mode", { p_mode: mode, p_confirm: !!confirm });
+        if (error) throw error;
+        await this.loadSchedule(true);
+    },
+    async saveInterval(shift, position, start, end, confirm) {
+        const { error } = await sb.rpc("admin_save_interval", {
+            p_shift: Number(shift), p_position: Number(position), p_start: start, p_end: end, p_confirm: !!confirm
+        });
+        if (error) throw error;
+        await this.loadSchedule(true);
+    },
+    async deleteInterval(shift, position) {
+        const { error } = await sb.rpc("admin_delete_interval", { p_shift: Number(shift), p_position: Number(position) });
+        if (error) throw error;
+        await this.loadSchedule(true);
+    },
+
+    // ---------- v3.0: училища (супер админ) ----------
+    async loadSchools() {
+        const { data, error } = await sb.rpc("super_list_schools");
+        if (error) throw error;
+        this._schools = data || [];
+        return this._schools;
+    },
+    async createSchool(name, domain) {
+        const { data, error } = await sb.rpc("super_create_school", { p_name: name, p_domain: domain || null });
+        if (error) throw error;
+        return data;
+    },
+    async updateSchool(id, name, status) {
+        const { error } = await sb.rpc("super_update_school", { p_id: id, p_name: name, p_status: status });
+        if (error) throw error;
+    },
+    async setActiveSchool(id) {
+        const { data, error } = await sb.rpc("set_active_school", { p_school: id || null });
+        if (error) throw error;
+        this.resetCache();
+        return data;
+    },
+    async listSchoolAdmins(schoolId) {
+        const { data, error } = await sb.rpc("super_list_school_admins", { p_school: schoolId });
+        if (error) throw error;
+        return data || [];
+    },
+    async setSchoolAdmin(schoolId, email, admin) {
+        const { error } = await sb.rpc("super_set_school_admin", { p_school: schoolId, p_email: email, p_admin: !!admin });
+        if (error) throw error;
+    },
+
+    // ---------- v3.0: домейни и покани ----------
+    async loadDomains(schoolId) {
+        const { data, error } = await sb.rpc("admin_list_domains", { p_school: schoolId || null });
+        if (error) throw error;
+        this._domains = data || [];
+        return this._domains;
+    },
+    async addDomain(domain, allowSub, schoolId) {
+        const { data, error } = await sb.rpc("admin_add_domain",
+            { p_domain: domain, p_allow_subdomains: !!allowSub, p_school: schoolId || null });
+        if (error) throw error;
+        return data;
+    },
+    async updateDomain(id, active, allowSub) {
+        const { data, error } = await sb.rpc("admin_update_domain",
+            { p_id: Number(id), p_active: !!active, p_allow_subdomains: !!allowSub });
+        if (error) throw error;
+        return data;
+    },
+    async removeDomain(id) {
+        const { error } = await sb.rpc("admin_remove_domain", { p_id: Number(id) });
+        if (error) throw error;
+    },
+    async inviteTeacher(email, schoolId) {
+        const { data, error } = await sb.rpc("admin_invite_teacher", { p_email: email, p_school: schoolId || null });
+        if (error) throw error;
+        return data;
     }
 };

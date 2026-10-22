@@ -25,7 +25,7 @@ do $$
 declare a uuid := gen_random_uuid(); b uuid := gen_random_uuid(); c uuid := gen_random_uuid();
 begin
   insert into auth.users(id, email) values (a, 'a@paisii.info'), (b, 'b@paisii.info'), (c, 'c@paisii.info');
-  insert into public.group_subjects(subject, enabled) values ('ТЕСТГРУПА', true) on conflict (subject) do update set enabled = true;
+  insert into public.group_subjects(subject, enabled) values ('ТЕСТГРУПА', true) on conflict (school_id, (lower(btrim(subject)))) do update set enabled = true;
 
   -- 1/2: същ учител, същ предмет, различни класове, I/7 и II/1
   perform pg_temp.try_save('1+2 учител+предмет: Пон I/7 Математика 8А', true,  a, 1, 1, 7, 'Математика', '12', array['8А']);
