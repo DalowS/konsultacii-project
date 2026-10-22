@@ -27,12 +27,11 @@ const auth = {
         const { error } = await sb.auth.updateUser({ password: newPassword });
         if (error) throw error;
     },
-    // v3.0: ролята и училището идват от сървъра (get_my_context), не от клиента.
-    // Връща { id, name, role: super_admin|admin|teacher|null, email, school, blocked, blocked_reason, is_super_admin }
     async loadProfile(user) {
-        const { data, error } = await sb.rpc("get_my_context");
+        const { data, error } = await sb.from("teachers")
+            .select("id,name,role").eq("id", user.id).maybeSingle();
         if (error) throw error;
-        if (!data) throw new Error("Липсва профил на потребител.");
-        return { ...data, id: data.user_id || user.id, email: data.email || user.email };
+        if (!data) throw new Error("Липсва профил на учител за този потребител.");
+        return { ...data, email: user.email };
     }
 };

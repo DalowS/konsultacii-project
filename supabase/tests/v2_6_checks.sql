@@ -42,7 +42,7 @@ begin
     (b, 'v26-b@paisii.info', '{"name":"ТЕСТ v2.6 Б"}');
 
   -- 5А не е задължително да е предварително създаден; новият тестов ред се отменя с ROLLBACK.
-  insert into public.classes (name) values ('5А') on conflict (school_id, name) do nothing;
+  insert into public.classes (name) values ('5А') on conflict (name) do nothing;
   select name into c_gym from public.classes where name = '8А';
   select name into c_prog from public.classes where name = '5А';
   if c_gym is null or c_prog is null then

@@ -65,139 +65,46 @@
     const POSITIONS_PER_SHIFT = 7;
     const POSITIONS = [1, 2, 3, 4, 5, 6, 7];
 
-    /* ------------------------------------------------------------------
-     * v3.0: ГРАФИКЪТ Е КОНФИГУРИРУЕМ ПО УЧИЛИЩЕ.
-     * Интервалите се пазят по (смяна на консултацията, позиция) – точно тези стойности са в
-     * consultations.shift/hour. Затова правилото „избрана I смяна -> 12:35–18:30, избрана II ->
-     * 7:30–13:15“ е СЪДЪРЖАНИЕ на графика (по подразбиране), а не специален случай в кода:
-     *   смяна 1, позиции 1..7 = TIME_SLOTS[6..12];  смяна 2, позиции 1..7 = TIME_SLOTS[0..6].
-     * Режими: "two_shifts" (по подразбиране, 7+7) и "one_shift" (смяна 1, N позиции).
-     * Ключът за конфликти остава (ден, смяна, час). Графикът се зарежда от сървъра (setSchedule);
-     * докато не е зареден, важи подразбиращият се (поведение като до v2.9).
-     * ------------------------------------------------------------------ */
-    const pad2 = n => String(n).padStart(2, "0");
-    // "7:30" | "07:30" | "07:30:00" -> "07:30"; "" ако е невалидно
-    const toHHMM = v => {
-        const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(v == null ? "" : v).trim());
-        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return "";
-        return pad2(m[1]) + ":" + m[2];
-    };
-    const timeToMinutes = v => { const t = toHHMM(v); return t ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : NaN; };
-    // "07:30","08:10" -> "7:30 - 8:10" (същият вид като TIME_SLOTS: CSV/печат/тестове)
-    const intervalLabel = (start, end) => `${Number(start.slice(0, 2))}:${start.slice(3)} - ${Number(end.slice(0, 2))}:${end.slice(3)}`;
+    const isValidPosition = (shift, hour) =>
+        (Number(shift) === 1 || Number(shift) === 2) &&
+        Number.isInteger(Number(hour)) && Number(hour) >= 1 && Number(hour) <= POSITIONS_PER_SHIFT;
 
-    function buildDefaultSchedule() {
-        const parse = label => label.split(" - ").map(toHHMM);
-        const intervals = [];
-        for (let p = 1; p <= POSITIONS_PER_SHIFT; p++) {
-            const [start, end] = parse(TIME_SLOTS[p + 5]);          // смяна 1 -> 12:35 ... 18:30
-            intervals.push({ shift: 1, position: p, start, end });
-        }
-        for (let p = 1; p <= POSITIONS_PER_SHIFT; p++) {
-            const [start, end] = parse(TIME_SLOTS[p - 1]);          // смяна 2 -> 7:30 ... 13:15
-            intervals.push({ shift: 2, position: p, start, end });
-        }
-        return { mode: "two_shifts", intervals };
-    }
+    // САМО за показване: индекс в TIME_SLOTS за позиция (смяна, час).
+    // Избраната смяна е РЕДОВНАТА смяна на етапа; консултациите са в часовете на ПРОТИВОПОЛОЖНАТА:
+    //   избрана I смяна  -> интервалите 12:35 - 18:30 (TIME_SLOTS[6..12])
+    //   избрана II смяна -> интервалите 7:30 - 13:15  (TIME_SLOTS[0..6])
+    // Това НЕ е идентичност на слот: слотът в графика, записа и при конфликтите си остава
+    // (ден, избрана смяна, час) – I/7 и II/1 са независими клетки (и двете се виждат като 12:35 - 13:15).
+    const labelIndex = (shift, hour) => (Number(shift) === 1 ? Number(hour) + 6 : Number(hour)) - 1;
 
-    let activeSchedule = null;
-    let slotIndex = new Map();
+    // Интервал за позиция; "" ако позицията е невалидна (напр. стари записи с час 8).
+    const positionLabel = (shift, hour) => isValidPosition(shift, hour) ? (TIME_SLOTS[labelIndex(shift, hour)] || "") : "";
 
-    // Приема { mode, intervals:[{shift,position,start,end,used?}] } (както го връща get_school_schedule).
-    // Невалиден/празен вход -> подразбиращият се график.
-    function setSchedule(input) {
-        const src = input && Array.isArray(input.intervals) && input.intervals.length ? input : buildDefaultSchedule();
-        const intervals = src.intervals
-            .map(i => ({ shift: Number(i.shift), position: Number(i.position), start: toHHMM(i.start), end: toHHMM(i.end),
-                         used: i.used == null ? null : Number(i.used) }))
-            .filter(i => (i.shift === 1 || i.shift === 2) && Number.isInteger(i.position) && i.position >= 1 && i.start && i.end)
-            .sort((a, b) => a.shift - b.shift || a.position - b.position);
-        const valid = intervals.length ? intervals : buildDefaultSchedule().intervals;
-        activeSchedule = { mode: src.mode === "one_shift" ? "one_shift" : "two_shifts", intervals: valid };
-        slotIndex = new Map(valid.map(i => [i.shift + ":" + i.position, i]));
-        return activeSchedule;
-    }
-    setSchedule(null);
-
-    const getSchedule = () => activeSchedule;
-    const scheduleMode = () => activeSchedule.mode;
-    const activeShifts = () => [...new Set(activeSchedule.intervals.map(i => i.shift))].sort((a, b) => a - b);
-    const positionsOf = shift => activeSchedule.intervals.filter(i => i.shift === Number(shift)).map(i => i.position);
-
-    const isValidPosition = (shift, hour) => slotIndex.has(Number(shift) + ":" + Number(hour));
-
-    // САМО за показване: интервалът на позиция (смяна, час); "" ако позицията не съществува
-    // (напр. стари записи с час 8). Това НЕ е идентичност на слот: слотът е (ден, смяна, час).
-    const positionLabel = (shift, hour) => {
-        const i = slotIndex.get(Number(shift) + ":" + Number(hour));
-        return i ? intervalLabel(i.start, i.end) : "";
-    };
-
-    // „I“ / „II“; при една смяна – „Единна“ (напр. „Единна смяна“)
-    const shiftText = shift => scheduleMode() === "one_shift" ? "Единна" : (Number(shift) === 1 ? "I" : "II");
+    const shiftText = shift => Number(shift) === 1 ? "I" : "II";
 
     // САМО за екранно показване: "7:30 - 8:10" -> "07:30–08:10". Не променя TIME_SLOTS, CSV и печата.
     const formatTimeRange = label => String(label || "").replace(/(\d{1,2}):(\d{2})/g, (m, h, mi) => h.padStart(2, "0") + ":" + mi).replace(/\s*-\s*/, "–");
 
-    // Диапазонът на консултациите за избраната смяна (начало на първата до край на последната позиция).
+    // Диапазонът на консултациите за избраната смяна (от началото на час 1 до края на час 7), изчислен от positionLabel.
     const shiftRangeLabel = shift => {
-        const ps = positionsOf(shift);
-        if (!ps.length) return "";
-        const a = positionLabel(shift, ps[0]), b = positionLabel(shift, ps[ps.length - 1]);
+        const a = positionLabel(shift, 1), b = positionLabel(shift, POSITIONS_PER_SHIFT);
         return a && b ? formatTimeRange(a.split(" - ")[0] + " - " + b.split(" - ")[1]) : "";
     };
-
-    // UX проверка на редактор на интервали (сървърът проверява същото в admin_save_interval).
-    // prevEnd – край на предишната позиция (или ""), nextStart – начало на следващата (или "").
-    function validateIntervalInput({ start, end, prevEnd, nextStart }) {
-        const errors = [], s = toHHMM(start), e = toHHMM(end);
-        if (!s) errors.push("Въведете валидно начало (ЧЧ:ММ).");
-        if (!e) errors.push("Въведете валиден край (ЧЧ:ММ).");
-        if (s && e && timeToMinutes(s) >= timeToMinutes(e)) errors.push("Началото трябва да е преди края.");
-        if (s && prevEnd && toHHMM(prevEnd) && timeToMinutes(s) < timeToMinutes(prevEnd)) errors.push("Интервалът се припокрива с предишния.");
-        if (e && nextStart && toHHMM(nextStart) && timeToMinutes(e) > timeToMinutes(nextStart)) errors.push("Интервалът се припокрива със следващия.");
-        return { ok: errors.length === 0, errors, start: s, end: e };
-    }
-
-    const SCHEDULE_MODES = { two_shifts: "Две смени", one_shift: "Една смяна" };
-    const scheduleModeLabel = m => SCHEDULE_MODES[m] || "—";
 
     /* ------------------------------------------------------------------
      * v2.9: регистрация, пароли, настройки на училището, заглавна лента.
      * Всичко тук е само UX проверка – реалната защита е в базата/Auth
      * (trigger за домейна, RPC за настройки, RLS).
      * ------------------------------------------------------------------ */
-    // v3.0: разрешените домейни са по училище и се пазят в базата (school_email_domains). Клиентът не ги знае
-    // (преди вход няма достъп) – тук се проверява само формата; домейнът се налага от trigger върху auth.users.
+    const ALLOWED_EMAIL_DOMAIN = "paisii.info";
 
     const normalizeEmail = v => String(v == null ? "" : v).trim().toLowerCase();
 
     const isValidEmailShape = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizeEmail(v));
-    const isAllowedEmail = v => isValidEmailShape(v);        // само форма; домейнът – на сървъра
-
-    // Домейни (администрация на училища)
-    const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
-    const normalizeDomain = v => String(v == null ? "" : v).trim().toLowerCase().replace(/^@+/, "").replace(/\.+$/, "");
-    const isValidDomain = d => d.length <= 253 && DOMAIN_RE.test(d);
-    function validateDomainInput(v) {
-        const domain = normalizeDomain(v);
-        if (!domain) return { ok: false, error: "Въведете домейн (напр. school.example.bg).", domain };
-        if (!isValidDomain(domain)) return { ok: false, error: "Невалиден домейн. Само латински букви, цифри, тире и точки (напр. school.example.bg).", domain };
-        return { ok: true, error: "", domain };
-    }
-    // Покана / имейл на учител
-    const validateInviteEmail = v => {
+    const isAllowedEmail = v => {
         const e = normalizeEmail(v);
-        return isValidEmailShape(e) && e.length <= 254 ? { ok: true, email: e, error: "" } : { ok: false, email: e, error: "Въведете валиден имейл адрес." };
+        return isValidEmailShape(e) && /^[^@\s]+@paisii\.info$/.test(e) && e.endsWith("@" + ALLOWED_EMAIL_DOMAIN);
     };
-    function validateSchoolName(v) {
-        const n = String(v || "").trim();
-        if (!n) return { ok: false, name: n, error: "Въведете име на училището." };
-        if (n.length > 150) return { ok: false, name: n, error: "Името на училището е твърде дълго (до 150 символа)." };
-        return { ok: true, name: n, error: "" };
-    }
-    const SCHOOL_STATUS = { active: "Активно", inactive: "Неактивно" };
-    const schoolStatusLabel = s => SCHOOL_STATUS[s] || "—";
 
     // Списък със съобщения (на български) за липсващите изисквания; празен = паролата е приемлива.
     function passwordProblems(pw) {
@@ -216,6 +123,7 @@
         else if (n.length < 3 || n.length > 100) errors.push("Името трябва да е между 3 и 100 символа.");
         if (!e) errors.push("Моля, въведете имейл.");
         else if (!isValidEmailShape(e)) errors.push("Въведете валиден имейл адрес.");
+        else if (!isAllowedEmail(e)) errors.push("Регистрацията е разрешена само с имейл от домейна @" + ALLOWED_EMAIL_DOMAIN + ".");
         if (!password) errors.push("Моля, въведете парола.");
         else errors.push(...passwordProblems(password));
         if (!password2) errors.push("Моля, повторете паролата.");
@@ -238,7 +146,7 @@
 
     const TERMS = { I: "I срок", II: "II срок" };
     const termLabel = t => TERMS[String(t || "").toUpperCase()] || "";
-    const roleLabel = r => r === "super_admin" ? "Супер администратор" : r === "admin" ? "Администратор" : "Учител";
+    const roleLabel = r => r === "admin" ? "Администратор" : "Учител";
     const USER_STATUS = { active: "Активен", pending: "Непотвърден имейл", blocked: "Блокиран" };
     const userStatusLabel = s => USER_STATUS[s] || "—";
 
@@ -321,7 +229,7 @@
      * СМЕНИ: при смяна на етапа смяната се обръща (I <-> II).
      * Реалното разпределение: когато единият етап е на I смяна, другият е на II.
      * ------------------------------------------------------------------ */
-    const getOppositeShift = shift => activeShifts().length < 2 ? (Number(shift) || 1) : (Number(shift) === 1 ? 2 : 1);
+    const getOppositeShift = shift => Number(shift) === 1 ? 2 : 1;
 
     // Етапи на консултация според класовете ѝ: "Прогимназиален / Гимназиален"
     function stageNamesOfRecord(record) {
@@ -434,10 +342,7 @@
                   compareClassNames, escapeHtml, csvCell, friendlyError, countOccupiedCells,
                   TIME_SLOTS, POSITIONS, POSITIONS_PER_SHIFT, isValidPosition,
                   positionLabel, shiftText, formatTimeRange, shiftRangeLabel,
-                  setSchedule, getSchedule, scheduleMode, activeShifts, positionsOf, buildDefaultSchedule, toHHMM, timeToMinutes,
-                  intervalLabel, validateIntervalInput, scheduleModeLabel, SCHEDULE_MODES,
-                  normalizeDomain, isValidDomain, validateDomainInput, validateInviteEmail, validateSchoolName, schoolStatusLabel,
-                  normalizeEmail, isValidEmailShape, isAllowedEmail, passwordProblems, validateRegistration,
+                  ALLOWED_EMAIL_DOMAIN, normalizeEmail, isValidEmailShape, isAllowedEmail, passwordProblems, validateRegistration,
                   validatePasswordChange, termLabel, roleLabel, userStatusLabel, termLine, userLine, validateSettings, normalizeParallel, buildClassName,
                   STAGES, STAGE_ORDER, DEFAULT_STAGE, gradeOfClass, stageOfClass, classesOfStage, scopeRecords,
                   getOppositeShift, stageNamesOfRecord, compareRecordsByTime, isGroupSubjectIn, findClassConflict,

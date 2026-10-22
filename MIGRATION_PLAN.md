@@ -56,6 +56,3 @@
 - `renderClassesAdmin` – две карти по етап (рендиране); `index.html` – контейнер `div#classesAdmin.classes-grid`; `style.css` – `.classes-*`.
 - `writePrintDocument(..., sheetClass)` + `.sheet-fit` в `PRINT_CSS` – само за „Моите консултации“.
 - Без промени в логика, Supabase, RLS, RPC, Realtime и SQL.
-
-## v3.0
-Три нови миграции (20261012–20261014) + ръчни скриптове в `supabase/manual/`. Ред на прилагане, проверка и възстановяване: MULTI_SCHOOL.md, т. 8.

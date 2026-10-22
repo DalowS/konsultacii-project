@@ -1048,17 +1048,15 @@ test("v2.9 смяна на парола: валидация, повторна п
     assert.ok(!JSON.stringify(logs).match(/Old12345|Newpass12|Wrong1234/), "паролите не са в логовете");
 });
 
-test("v3.0 регистрация: домейнът се решава на сървъра; повторение на паролата; нормализиране; сървърен отказ", async () => {
+test("v2.9 регистрация: само @paisii.info; повторение на паролата; нормализиране; сървърен отказ", async () => {
     const t = setup();
     t.run(`globalThis.__su = []; sb = { auth: { signUp: async a => { __su.push(a); return { data: { session: null }, error: null }; } } }; authMode = "register";`);
     const fill = (name, email, pw, pw2) => t.run(`document.getElementById("regName").value=${JSON.stringify(name)}; document.getElementById("authEmail").value=${JSON.stringify(email)}; document.getElementById("authPassword").value=${JSON.stringify(pw)}; document.getElementById("regPassword2").value=${JSON.stringify(pw2)};`);
-    // клиентът не знае разрешените домейни (различни са за всяко училище) -> изпраща валидна форма, сървърът решава
-    fill("Иван Иванов", "ivan@gmail.com", "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
-    assert.equal(t.run("__su.length"), 1, "домейнът не се проверява в клиента");
-    t.run("__su.length = 0");
-    fill("Иван Иванов", "не-имейл", "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
-    assert.equal(t.run("__su.length"), 0, "невалидна форма не стига до Supabase");
-    t.run(`authMode = "register"`);              // след успешна регистрация формата се връща във „Вход“
+    for (const bad of ["ivan@gmail.com", "ivan@abv.bg", "ivan@yahoo.com", "ivan@outlook.com"]) {
+        fill("Иван Иванов", bad, "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
+        assert.equal(t.run("__su.length"), 0, bad + " не стига до Supabase");
+        assert.match(t.elements.authMessage.textContent, /@paisii\.info/);
+    }
     fill("Иван Иванов", "ivan@paisii.info", "Abcdef12", "Abcdef13"); await t.run("submitAuth()");
     assert.equal(t.run("__su.length"), 0); assert.match(t.elements.authMessage.textContent, /не съвпадат/);
     fill("Иван Иванов", "ivan@paisii.info", "abcdefgh", "abcdefgh"); await t.run("submitAuth()");
@@ -1070,8 +1068,7 @@ test("v3.0 регистрация: домейнът се решава на съ�
     // сървърът (trigger) отказва -> ясно съобщение
     t.run(`authMode = "register"; sb.auth.signUp = async () => ({ data: null, error: { message: "Database error saving new user" } });`);
     fill("Иван Иванов", "ivan@paisii.info", "Abcdef12", "Abcdef12"); await t.run("submitAuth()");
-    assert.match(t.elements.authMessage.textContent, /домейна на училището|покана/);
-    assert.doesNotMatch(t.elements.authMessage.textContent, /paisii/i, "няма твърдо кодиран домейн в съобщението");
+    assert.match(t.elements.authMessage.textContent, /само с имейл от домейна @paisii\.info/);
     // формата има „Повтори паролата“
     assert.match(html9(), /id="regPassword2"[^>]*type="password"|type="password"[^>]*id="regPassword2"|<input id="regPassword2" type="password"/);
 });
@@ -1132,12 +1129,10 @@ test("v2.9: бизнес правилата са непроменени (сво�
 });
 
 /* ===================== v2.9 – завършване ===================== */
-test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна); след нея са само трите v3.0; 20261010 има домейн trigger и RLS", () => {
+test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна) и е последната; 20261010 има домейн trigger и RLS", () => {
     const dir = path.join(__dirname, "..", "supabase", "migrations");
     const files = fs.readdirSync(dir).filter(f => f.endsWith(".sql")).sort();
-    // v3.0 добавя САМО нови миграции след 20261011 (старите не се редактират – вж. теста с контролните суми)
-    assert.deepEqual(files.slice(files.indexOf("20261011000000_free_shift_selection.sql") + 1), [
-        "20261012000000_multi_school_foundation.sql", "20261013000000_multi_school_access_control.sql", "20261014000000_school_schedule_config.sql"]);
+    assert.equal(files[files.length - 1], "20261011000000_free_shift_selection.sql");
     const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
     const m11 = strip(fs.readFileSync(path.join(dir, "20261011000000_free_shift_selection.sql"), "utf8"));
     assert.match(m11, /create or replace function public\._save_consultation\(/);
@@ -1162,66 +1157,4 @@ test("v2.9 мобилно меню: има видим бутон за затва
     t.run(`setSidebarOpen(true)`);
     t.run(`closeSidebar()`);
     assert.equal(t.run(`document.body.classList.contains("sidebar-open")`), false);
-});
-
-
-/* ===================== v3.0: multi-school ===================== */
-test("v3.0: старите миграции (до 20261011) са байт по байт непроменени спрямо v2.9", () => {
-    const crypto = require("crypto");
-    const dir = path.join(__dirname, "..", "supabase", "migrations");
-    const lines = fs.readFileSync(path.join(__dirname, "fixtures", "v29_migrations.sha256"), "utf8").trim().split("\n");
-    assert.equal(lines.length, 7);
-    for (const line of lines) {
-        const [hash, name] = line.trim().split(/\s+/);
-        const actual = crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, name))).digest("hex");
-        assert.equal(actual, hash, name + " е променена");
-    }
-});
-
-test("v3.0: няма service_role и твърдо кодирано училище/домейн във фронтенда", () => {
-    const root = path.join(__dirname, "..");
-    const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
-    for (const f of ["app.js", "storage.js", "auth.js", "logic.js"]) {
-        const code = fs.readFileSync(path.join(root, "js", f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");   // без коментари
-        assert.doesNotMatch(code, /service_role/i, f);
-        assert.doesNotMatch(code, /paisii\.info|Св\. Паисий/, f + " съдържа твърдо кодирано училище/домейн");
-    }
-    assert.doesNotMatch(html, /paisii|Св\. Паисий|Пловдив/i);
-});
-
-test("v3.0: профил от get_my_context; блокиран потребител не зарежда данни; супер админ без училище е в глобален изглед", async () => {
-    const t = setup();
-    t.run(`globalThis.__calls = []; auth.loadProfile = async () => globalThis.__profile; storage.refresh = async () => { __calls.push("refresh"); }; storage.loadSettings = async () => null; storage.loadSchedule = async () => null; storage.loadSchools = async () => { __calls.push("schools"); return []; }; startRealtime = () => {};`);
-    // блокиран (неактивно училище)
-    t.run(`globalThis.__profile = { id: "u1", name: "Иван", role: null, blocked: true, blocked_reason: "school_inactive", school: null, is_admin: false, is_super_admin: false };`);
-    await t.run(`handleSession({ user: { id: "u1" } })`);
-    assert.equal(t.run(`__calls.includes("refresh")`), false);
-    assert.match(t.elements.blockedText.textContent, /неактивно/);
-    t.run(`teardown()`);
-    // супер админ без избрано училище
-    t.run(`globalThis.__profile = { id: "s1", name: "Супер", role: "super_admin", blocked: false, school: null, is_admin: false, is_super_admin: true };`);
-    await t.run(`handleSession({ user: { id: "s1" } })`);
-    assert.equal(t.run(`__calls.includes("refresh")`), false, "няма данни на училище в глобален изглед");
-    assert.ok(t.run(`__calls.includes("schools")`));
-    assert.match(t.elements.schoolIndicatorName.textContent, /Глобален изглед/);
-});
-
-test("v3.0: индикаторът показва училището; смяната/връщането нулира кеша", async () => {
-    const t = setup();
-    t.run(`isSuperAdmin = true; activeSchool = { id: "a", name: "Училище А", status: "active" }; currentUser = { id: "s1", name: "Супер", role: "super_admin" }; renderHeader();`);
-    assert.match(t.elements.schoolIndicatorName.textContent, /Училище А/);
-    t.run(`storage._cache = [{ id: "1" }]; storage._classes = [{ id: 1, name: "5А" }]; storage.resetCache();`);
-    assert.equal(t.run(`storage.getAll().length + storage.getClasses().length`), 0);
-});
-
-test("v3.0: един режим на смяна – динамични смени и часове; две смени – непроменено и #shiftSelect не е заключен", () => {
-    const t = setup();
-    t.run(`setSchedule({ mode: "one_shift", intervals: [1,2,3,4,5].map(i => ({ shift: 1, position: i, start: String(7 + i).padStart(2, "0") + ":00", end: String(7 + i).padStart(2, "0") + ":45" })) }); applyScheduleToUI();`);
-    assert.deepEqual(t.run(`positionsOf(1)`), [1, 2, 3, 4, 5]);
-    assert.equal(t.run(`shiftName(1)`), "Единна смяна");
-    assert.equal(t.run(`getOppositeShift(1)`), 1);
-    t.run(`setSchedule(null); applyScheduleToUI();`);
-    assert.deepEqual(t.run(`activeShifts()`), [1, 2]);
-    assert.equal(t.run(`shiftName(2)`), "II смяна");
-    assert.doesNotMatch(html9().match(/<select id="shiftSelect"[^>]*>/)[0], /disabled|readonly|hidden/i);
 });

@@ -49,7 +49,7 @@ begin
   select name into c1 from public.classes order by id limit 1;
   select name into c2 from public.classes order by id offset 1 limit 1;
 
-  insert into public.group_subjects(subject, enabled) values ('ТЕСТГРУПА', true) on conflict (school_id, (lower(btrim(subject)))) do update set enabled = true;
+  insert into public.group_subjects(subject, enabled) values ('ТЕСТГРУПА', true) on conflict (subject) do update set enabled = true;
 
   -- ===== 12:35-13:15: I смяна/7 и II смяна/1 са НЕЗАВИСИМИ клетки =====
   perform pg_temp.as_user(a);

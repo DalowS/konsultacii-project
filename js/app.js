@@ -5,12 +5,9 @@ const CONFIG = {
     schoolName: "Училище",
     classes: [],   // зареждат се от public.classes
     days: DAY_NAMES,
-    // v3.0: интервалите са по училище (storage.loadSchedule -> setSchedule в js/logic.js); позициите на смяна: positionsOf(shift).
+    // Часовете са в js/logic.js (TIME_SLOTS): 7 позиции на смяна; 12:35 - 13:15 е отделна клетка и в двете смени.
     hours: POSITIONS
 };
-
-// „I смяна“ / „II смяна“ (две смени) или „Единна смяна“ (една смяна)
-const shiftName = shift => `${shiftText(shift)} смяна`;
 
 /* ---- Запазен от v1.7 код: рендериране и модали ---- */
 function isGroupSubject(subject) {
@@ -33,7 +30,7 @@ function renderSchedule() {
     const shift = Number(document.getElementById("shiftSelect").value);
 
     document.getElementById("scheduleTitle").textContent =
-        `${className} • ${shiftName(shift)}`;
+        `${className} • ${shift === 1 ? "I смяна" : "II смяна"}`;
 
     const table = document.getElementById("scheduleTable");
     if (!className) {
@@ -50,7 +47,7 @@ function renderSchedule() {
         <tbody>
     `;
 
-    positionsOf(shift).forEach(hour => {
+    CONFIG.hours.forEach(hour => {
         html += `<tr>`;
         html += `<td class="hour-cell">${formatTimeRange(positionLabel(shift, hour)) || (hour + " час")}</td>`;
 
@@ -278,7 +275,7 @@ function renderAdminTable() {
         html += `
             <tr>
                 <td>${escapeHtml(normalizeClasses(record).join(", "))}</td>
-                <td>${escapeHtml(shiftText(record.shift))}</td>
+                <td>${shiftText(record.shift)}</td>
                 <td>${escapeHtml(record.day)}</td>
                 <td>${escapeHtml(hourLabel(record))}</td>
                 <td><strong>${escapeHtml(record.subject)}</strong></td>
@@ -373,11 +370,9 @@ let realtimeChannel = null;
 let pollTimer = null;
 let reloadTimer = null;
 let authMode = "login";
-let adminSection = "consultations";          // settings | users | domains | schedule | classes | consultations
-let isSuperAdmin = false;                    // v3.0: глобален супер администратор (само UX; сървърът решава)
-let activeSchool = null;                     // {id,name,status} или null (глобален изглед)
+let adminSection = "consultations";          // settings | users | classes | consultations
 let profileSection = "profile";              // profile | password
-const ADMIN_TITLES = { settings: "Настройки", users: "Потребители", domains: "Домейни", schedule: "График на часовете", classes: "Класове", consultations: "Консултации" };
+const ADMIN_TITLES = { settings: "Настройки", users: "Потребители", classes: "Класове", consultations: "Консултации" };
 let sessionQueue = Promise.resolve();
 
 /*
@@ -385,12 +380,12 @@ let sessionQueue = Promise.resolve();
     UI ПОМОЩНИ ФУНКЦИИ
     ==========================================================
 */
-const SCREENS = ["loadingScreen", "loginScreen", "blockedScreen", "schoolsScreen", "teacherScreen", "adminScreen", "profileScreen"];
+const SCREENS = ["loadingScreen", "loginScreen", "teacherScreen", "adminScreen", "profileScreen"];
 
 function showScreen(id) {
     SCREENS.forEach(s => document.getElementById(s).classList.toggle("hidden", s !== id));
     // навигацията (sidebar, потребител в заглавната лента) е само след вход
-    const inApp = ["teacherScreen", "adminScreen", "profileScreen", "schoolsScreen"].includes(id);
+    const inApp = id === "teacherScreen" || id === "adminScreen" || id === "profileScreen";
     document.body.classList.toggle("authed", inApp);
     closeSidebar();
     renderHeader();
@@ -402,26 +397,7 @@ function renderHeader() {
     const settings = storage.getSettings();
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
     set("headerTerm", termLine(settings));
-    set("headerSchool", settings ? settings.school_name : (activeSchool ? activeSchool.name : ""));
-    set("footerNote", activeSchool || settings
-        ? `Сайтът е разработен в помощ на ${(settings && settings.school_name) || activeSchool.name}`
-        : "График за консултации");
-    // v3.0: винаги видим индикатор за контекста (училище или глобален изглед)
-    const ind = document.getElementById("schoolIndicator");
-    if (ind) {
-        ind.classList.toggle("hidden", !currentUser);
-        set("schoolIndicatorName", !currentUser ? "" : activeSchool
-            ? `Училище: ${activeSchool.name}${activeSchool.status === "inactive" ? " (неактивно)" : ""}`
-            : isSuperAdmin ? "Глобален изглед (няма избрано училище)" : "");
-        const back = document.getElementById("schoolBackBtn");
-        if (back) back.classList.toggle("hidden", !(isSuperAdmin && activeSchool));
-    }
-    const superNav = document.getElementById("superNavBlock");
-    if (superNav) superNav.classList.toggle("hidden", !isSuperAdmin);
-    // в глобален изглед (супер админ без избрано училище) няма график/мои консултации
-    document.querySelectorAll('#sidebar [data-nav="schedule"], #sidebar [data-nav="mine"]').forEach(b => b.classList.toggle("hidden", !activeSchool));
-    const schedBtn = document.querySelector('#sidebar [data-nav="schedule"]');
-    if (schedBtn && schedBtn.closest) { const g = schedBtn.closest(".nav-group"); if (g) g.classList.toggle("hidden", !activeSchool); }
+    set("headerSchool", settings ? settings.school_name : "");
     set("headerUser", currentUser ? userLine(currentTeacher, currentUser.role) : "");
     set("currentTeacher", currentTeacher);
     set("sidebarUser", currentUser ? userLine(currentTeacher, currentUser.role) : "");   // видимо в менюто на малки екрани
@@ -431,7 +407,6 @@ function renderHeader() {
 }
 
 function currentNavKey() {
-    if (isVisible("schoolsScreen")) return "schools";
     if (isVisible("teacherScreen")) return "schedule";
     if (isVisible("adminScreen")) return "admin-" + adminSection;
     if (isVisible("profileScreen")) return profileSection;
@@ -529,18 +504,15 @@ async function handleSession(session) {
 
     showScreen("loadingScreen");
     try {
-        const profile = await auth.loadProfile(session.user);     // сървърът решава роля и училище
-        applyProfile(profile);
-        if (profile.blocked) {                                     // няма членство / неактивно училище
-            showBlockedScreen(profile);
-            return;
-        }
-        if (isSuperAdmin && !activeSchool) {                       // глобален изглед: само управление на училища
-            startRealtime();
-            await showSchoolsScreen();
-            return;
-        }
-        await loadSchoolData();
+        const profile = await auth.loadProfile(session.user);
+        await storage.refresh();
+        await storage.loadSettings();            // не блокира графика при грешка
+        currentUser = profile;
+        isAdmin = profile.role === "admin";
+        currentTeacher = profile.name;
+        CONFIG.classes = storage.getClassNames();
+        loadStagePreference();
+        populateClasses();
         startRealtime();
         showTeacherScreen();
     } catch (error) {
@@ -552,63 +524,14 @@ async function handleSession(session) {
     }
 }
 
-function applyProfile(profile) {
-    currentUser = profile;
-    isSuperAdmin = !!profile.is_super_admin;
-    isAdmin = !!profile.is_admin;                 // админ на избраното/собственото училище (не важи за глобален изглед)
-    currentTeacher = profile.name;
-    activeSchool = profile.school || null;
-}
-
-// Данни на активното училище: график (интервали), класове, консултации, настройки.
-async function loadSchoolData() {
-    await storage.loadSchedule(isAdmin);          // не блокира при грешка -> подразбиращ се график
-    setSchedule(storage.getSchedule());
-    await storage.refresh();
-    await storage.loadSettings();
-    CONFIG.classes = storage.getClassNames();
-    loadStagePreference();
-    populateClasses();
-    applyScheduleToUI();
-}
-
-function showBlockedScreen(profile) {
-    const reason = profile.blocked_reason;
-    document.getElementById("blockedText").textContent =
-        reason === "school_inactive" ? "Вашето училище е неактивно. Обърнете се към администратор на платформата."
-        : reason === "no_membership" ? "Профилът Ви не е свързан с училище. Регистрирайте се с имейл от домейн на училището си или поискайте покана."
-        : "Нямате достъп до активно училище.";
-    showScreen("blockedScreen");
-}
-
-// Динамични смени/часове според режима на училището (без заключване на #shiftSelect при две смени).
-function applyScheduleToUI() {
-    const shifts = activeShifts();
-    const fill = (id, withAll) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        const cur = el.value;
-        el.innerHTML = (withAll ? `<option value="">Всички смени</option>` : "") +
-            shifts.map(sh => `<option value="${sh}">${escapeHtml(shiftName(sh))}</option>`).join("");
-        el.value = shifts.map(String).includes(String(cur)) ? cur : (withAll ? "" : String(shifts[0] || 1));
-        const group = el.closest ? el.closest(".form-group") : null;
-        if (group) group.classList.toggle("hidden", shifts.length < 2);   // една смяна: няма какво да се избира
-    };
-    fill("shiftSelect", false);
-    fill("adminShiftFilter", true);
-}
-
 function teardown() {
     stopRealtime();
     currentUser = null;
     isAdmin = false;
-    isSuperAdmin = false;
-    activeSchool = null;
     currentTeacher = "";
-    storage.resetCache();
-    storage._schools = null;
-    setSchedule(null);
-    closeSchoolDetail();
+    storage._cache = [];
+    storage._settings = null;
+    storage._users = null;
     ["authPassword", "regPassword2", "pwCurrent", "pwNew", "pwRepeat"].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = "";
     });
@@ -625,7 +548,7 @@ function toggleAuthMode() {
     const reg = authMode === "register";
     document.getElementById("authTitle").textContent = reg ? "Регистрация на учител" : "Вход в системата";
     document.getElementById("authHint").textContent = reg
-        ? "Регистрация с имейл от разрешен домейн на училището или с покана от администратор. Паролата е поне 8 символа, с главна и малка буква и цифра."
+        ? "Регистрация само с имейл @paisii.info. Паролата е поне 8 символа, с главна и малка буква и цифра."
         : "Влезте с имейл и парола.";
     document.getElementById("regNameGroup").style.display = reg ? "block" : "none";
     document.getElementById("regPassword2Group").style.display = reg ? "block" : "none";
@@ -644,7 +567,7 @@ async function submitAuth() {
     let email = normalizeEmail(document.getElementById("authEmail").value);
 
     if (authMode === "register") {
-        // само UX слой (форма); домейнът и училището се определят на сървъра (trigger върху auth.users, миграция 20261012000000)
+        // само UX слой; домейнът се налага и от trigger върху auth.users (миграция 20261010000000)
         const v = validateRegistration({ name, email, password, password2: document.getElementById("regPassword2").value });
         if (!v.ok) { showAuthMessage(v.errors.join("\n"), "error"); return; }
         email = v.email;
@@ -669,9 +592,9 @@ async function submitAuth() {
     } catch (error) {
         console.error(error);
         const invalid = /invalid login credentials/i.test(error.message || "");
-        const dbReject = authMode === "register" && /database error saving new user|домейн|покана/i.test(error.message || "");
+        const dbReject = authMode === "register" && /database error saving new user|paisii\.info/i.test(error.message || "");
         showAuthMessage(invalid ? "Грешен имейл или парола."
-            : dbReject ? "Регистрацията не е разрешена за този имейл. Използвайте имейл от домейна на училището си или поискайте покана от администратор."
+            : dbReject ? "Регистрацията е разрешена само с имейл от домейна @paisii.info."
             : friendlyError(error, authMode === "register" ? "Неуспешна регистрация. Моля, опитайте отново." : "Неуспешен вход. Моля, опитайте отново."), "error");
     } finally {
         setBusy(btn, false);
@@ -718,7 +641,6 @@ function applyAdminSection() {
 function showAdminScreen(section) {
     if (!isAdmin) return;               // само UX; реалната защита е RLS/RPC
     if (ADMIN_TITLES[section]) adminSection = section;
-    applyScheduleToUI();
     showScreen("adminScreen");
     applyAdminSection();
     updateNav();
@@ -730,14 +652,12 @@ function showAdminScreen(section) {
     refreshAdmin();
     if (adminSection === "settings") fillSettingsForm();
     if (adminSection === "users") loadUsersAndRender();
-    if (adminSection === "domains") renderDomains("adm", null);
-    if (adminSection === "schedule") renderScheduleAdmin();
 }
 
 function fillSettingsForm() {
     const s = storage.getSettings();
     if (!s) {
-        showAdminStatus("Настройките на училището не са налични. Приложете миграциите за v2.9 и v3.0 (multi-school).", "error");
+        showAdminStatus("Настройките на училището не са налични. Приложете миграция 20261010000000_school_settings_users_domain.sql.", "error");
         return;
     }
     document.getElementById("settingsSchoolName").value = s.school_name;
@@ -861,10 +781,6 @@ function scheduleReload() {
 async function reloadData() {
     if (!currentUser) return;
     try {
-        if (!activeSchool) return;                      // глобален изглед: няма данни на училище
-        await storage.loadSchedule(isAdmin);
-        setSchedule(storage.getSchedule());
-        applyScheduleToUI();
         await storage.refresh();
         await storage.loadSettings();
         if (isAdmin && isVisible("adminScreen") && adminSection === "users") await storage.loadUsers();
@@ -937,7 +853,7 @@ function setStage(stage) {
     populateClasses();
     renderStageTabs();
     renderViews();
-    if (newShift !== previousShift) setViewNote(`Смяната е сменена автоматично: ${shiftText(previousShift)} → ${shiftText(newShift)} смяна.`);
+    setViewNote(`Смяната е сменена автоматично: ${shiftText(previousShift)} → ${shiftText(newShift)} смяна.`);
 }
 
 // Ясен индикатор: "Прогимназиален етап · II смяна" (+ бележка след автоматична смяна)
@@ -945,7 +861,7 @@ function updateViewIndicator() {
     const el = document.getElementById("viewIndicator");
     if (!el) return;
     const shift = Number(document.getElementById("shiftSelect").value) || 1;
-    el.innerHTML = `<strong>${escapeHtml(STAGES[currentStage].label)} · ${escapeHtml(shiftName(shift))}</strong>` +
+    el.innerHTML = `<strong>${escapeHtml(STAGES[currentStage].label)} · ${shiftText(shift)} смяна</strong>` +
         `<span class="view-range">Консултации: <b>${escapeHtml(shiftRangeLabel(shift))}</b></span>` +
         (viewNote ? `<span class="view-note">${escapeHtml(viewNote)}</span>` : "");
     el.classList.toggle("changed", !!viewNote);
@@ -1515,7 +1431,7 @@ let modalSlot = { shift: 1, hour: 1 };
 
 function setModalSlot(shift, hour) {
     modalSlot = { shift: Number(shift), hour: Number(hour) };
-    document.getElementById("modalShift").value = shiftName(shift);
+    document.getElementById("modalShift").value = Number(shift) === 1 ? "I смяна" : "II смяна";
     document.getElementById("modalHour").value = formatTimeRange(positionLabel(shift, hour)) || `${hour} (невалиден час)`;
 }
 
@@ -1616,368 +1532,4 @@ async function removeTeacher(id, btn) {
         showError(error, "Неуспешно премахване на учителя. Моля, опитайте отново.");
         reloadData();
     } finally { setBusy(btn, false); }
-}
-
-/*
-    ==========================================================
-    v3.0: УЧИЛИЩА (супер администратор), ДОМЕЙНИ, ПОКАНИ, ГРАФИК НА ЧАСОВЕТЕ
-    Всичко тук е само интерфейс – правата се проверяват на сървъра (RLS/RPC).
-    ==========================================================
-*/
-function schoolMsg(message, type) {
-    const el = document.getElementById("schoolsStatus");
-    if (!el) return;
-    el.textContent = message;
-    el.className = "status " + (type || "");
-    setTimeout(() => { el.className = "status"; }, 4500);
-}
-
-async function showSchoolsScreen() {
-    if (!isSuperAdmin) return;
-    showScreen("schoolsScreen");
-    try {
-        await storage.loadSchools();
-        renderSchoolsList();
-    } catch (error) {
-        console.error(error);
-        schoolMsg(friendlyError(error, "Неуспешно зареждане на училищата."), "error");
-    }
-}
-
-function renderSchoolsList() {
-    const table = document.getElementById("schoolsTable");
-    if (!table) return;
-    const q = (document.getElementById("schoolSearch").value || "").trim().toLowerCase();
-    const st = document.getElementById("schoolStatusFilter").value;
-    const rows = (storage.getSchools() || []).filter(sc =>
-        (!st || sc.status === st) &&
-        (!q || sc.name.toLowerCase().includes(q) || (sc.domains || []).some(d => d.toLowerCase().includes(q))));
-    table.innerHTML = `<thead><tr><th>Училище</th><th>Статус</th><th>Домейни</th><th>Админи</th><th>Учители</th><th>Класове</th><th>Консултации</th><th></th></tr></thead><tbody>` +
-        (rows.length ? rows.map(sc => `
-        <tr${activeSchool && activeSchool.id === sc.id ? ' class="row-active"' : ""}>
-            <td><strong>${escapeHtml(sc.name)}</strong></td>
-            <td>${escapeHtml(schoolStatusLabel(sc.status))}</td>
-            <td>${escapeHtml((sc.domains || []).join(", ") || "—")}</td>
-            <td class="num">${Number(sc.admins_count)}</td>
-            <td class="num">${Number(sc.teachers_count)}</td>
-            <td class="num">${Number(sc.classes_count)}</td>
-            <td class="num">${Number(sc.consultations_count)}</td>
-            <td class="cell-actions-col">
-                <button class="btn-secondary btn-compact" onclick="openSchoolDetail('${escapeHtml(sc.id)}')">Детайли</button>
-                <button class="btn-primary btn-compact" onclick="manageSchool('${escapeHtml(sc.id)}')">Управлявай</button>
-            </td>
-        </tr>`).join("") : `<tr><td colspan="8" style="padding:16px;">Няма училища според филтъра.</td></tr>`) + `</tbody>`;
-}
-
-async function createSchoolAction(btn) {
-    const nameV = validateSchoolName(document.getElementById("newSchoolName").value);
-    if (!nameV.ok) { schoolMsg(nameV.error, "error"); return; }
-    const raw = document.getElementById("newSchoolDomain").value.trim();
-    let domain = null;
-    if (raw) {
-        const d = validateDomainInput(raw);
-        if (!d.ok) { schoolMsg(d.error, "error"); return; }
-        domain = d.domain;
-    }
-    setBusy(btn, true, "Създаване...");
-    try {
-        await storage.createSchool(nameV.name, domain);
-        document.getElementById("newSchoolName").value = "";
-        document.getElementById("newSchoolDomain").value = "";
-        await storage.loadSchools();
-        renderSchoolsList();
-        schoolMsg(`Училище „${nameV.name}“ е създадено.`, "success");
-    } catch (error) {
-        console.error(error);
-        schoolMsg(friendlyError(error, "Неуспешно създаване на училище."), "error");
-    } finally { setBusy(btn, false); }
-}
-
-async function openSchoolDetail(id) {
-    const sc = (storage.getSchools() || []).find(x => x.id === id);
-    if (!sc) return;
-    document.getElementById("schoolDetailId").value = sc.id;
-    document.getElementById("schoolDetailTitle").textContent = sc.name;
-    document.getElementById("schoolDetailName").value = sc.name;
-    document.getElementById("schoolDetailStatus").value = sc.status;
-    document.getElementById("schoolDetailCounts").textContent =
-        `Учители: ${sc.teachers_count} · Администратори: ${sc.admins_count} · Класове: ${sc.classes_count} · Консултации: ${sc.consultations_count}`;
-    document.getElementById("schoolDetail").classList.remove("hidden");
-    await Promise.all([renderDomains("sch", sc.id), renderSchoolAdmins(sc.id)]);
-    document.getElementById("schoolDetail").scrollIntoView?.({ block: "nearest" });
-}
-
-function closeSchoolDetail() {
-    const d = document.getElementById("schoolDetail");
-    if (d) d.classList.add("hidden");
-}
-
-const detailSchoolId = () => document.getElementById("schoolDetailId").value;
-
-async function saveSchoolAction(btn) {
-    const id = detailSchoolId();
-    const nameV = validateSchoolName(document.getElementById("schoolDetailName").value);
-    if (!nameV.ok) { schoolMsg(nameV.error, "error"); return; }
-    const status = document.getElementById("schoolDetailStatus").value;
-    const cur = (storage.getSchools() || []).find(x => x.id === id);
-    if (cur && cur.status === "active" && status === "inactive" &&
-        !confirm(`Да бъде ли деактивирано училище „${cur.name}“?\n\nПотребителите му няма да могат да работят, докато не бъде активирано отново. Данните се запазват.`)) return;
-    setBusy(btn, true, "Записване...");
-    try {
-        await storage.updateSchool(id, nameV.name, status);
-        await storage.loadSchools();
-        renderSchoolsList();
-        if (activeSchool && activeSchool.id === id) activeSchool = { ...activeSchool, name: nameV.name, status };
-        renderHeader();
-        schoolMsg("Училището е обновено.", "success");
-        await openSchoolDetail(id);
-    } catch (error) {
-        console.error(error);
-        schoolMsg(friendlyError(error, "Неуспешно запазване."), "error");
-    } finally { setBusy(btn, false); }
-}
-
-// Избор на училище за администриране: сървърът записва избора; кешът се нулира преди зареждане.
-async function manageSchool(id) {
-    id = id || detailSchoolId();
-    if (!isSuperAdmin || !id) return;
-    try {
-        stopRealtime();
-        const sc = await storage.setActiveSchool(id);          // нулира кеша
-        activeSchool = sc;
-        isAdmin = true;                                        // супер админ е админ на избраното училище
-        setSchedule(null);
-        await loadSchoolData();
-        startRealtime();
-        showTeacherScreen();
-    } catch (error) {
-        console.error(error);
-        schoolMsg(friendlyError(error, "Неуспешен избор на училище."), "error");
-        startRealtime();
-    }
-}
-
-async function backToGlobalView() {
-    if (!isSuperAdmin) return;
-    try {
-        stopRealtime();
-        await storage.setActiveSchool(null);
-        activeSchool = null;
-        isAdmin = false;
-        setSchedule(null);
-        applyScheduleToUI();
-        startRealtime();
-        await showSchoolsScreen();
-    } catch (error) {
-        console.error(error);
-        notify(friendlyError(error, "Неуспешно връщане към глобалния изглед."), "error");
-    }
-}
-
-// ---------- администратори на училище ----------
-async function renderSchoolAdmins(schoolId) {
-    const t = document.getElementById("schAdminsTable");
-    try {
-        const list = await storage.listSchoolAdmins(schoolId);
-        t.innerHTML = `<thead><tr><th>Име</th><th>Имейл</th><th>Статус</th><th></th></tr></thead><tbody>` +
-            (list.length ? list.map(a => `<tr><td>${escapeHtml(a.name || "—")}</td><td>${escapeHtml(a.email || "—")}</td>
-                <td>${escapeHtml(userStatusLabel(a.status))}</td>
-                <td><button class="btn-danger btn-compact" onclick="removeSchoolAdminAction('${escapeHtml(a.email || "")}')">Премахни</button></td></tr>`).join("")
-                : `<tr><td colspan="4">Няма администратори.</td></tr>`) + `</tbody>`;
-    } catch (error) {
-        t.innerHTML = `<tbody><tr><td>${escapeHtml(friendlyError(error, "Неуспешно зареждане."))}</td></tr></tbody>`;
-    }
-}
-
-async function addSchoolAdminAction() {
-    const v = validateInviteEmail(document.getElementById("schAdminEmail").value);
-    if (!v.ok) { schoolMsg(v.error, "error"); return; }
-    try {
-        await storage.setSchoolAdmin(detailSchoolId(), v.email, true);
-        document.getElementById("schAdminEmail").value = "";
-        await storage.loadSchools(); renderSchoolsList();
-        await renderSchoolAdmins(detailSchoolId());
-        schoolMsg("Администраторът е назначен.", "success");
-    } catch (error) { schoolMsg(friendlyError(error, "Неуспешно назначаване."), "error"); }
-}
-
-async function removeSchoolAdminAction(email) {
-    if (!confirm(`Да бъде ли премахнат администраторът ${email}? (Остава като учител.)`)) return;
-    try {
-        await storage.setSchoolAdmin(detailSchoolId(), email, false);
-        await storage.loadSchools(); renderSchoolsList();
-        await renderSchoolAdmins(detailSchoolId());
-        schoolMsg("Администраторът е премахнат.", "success");
-    } catch (error) { schoolMsg(friendlyError(error, "Неуспешно премахване."), "error"); }
-}
-
-// ---------- домейни (prefix: "adm" = собственото училище; "sch" = избраното в екрана „Училища“) ----------
-const domainMsg = (prefix, m, t) => prefix === "sch" ? schoolMsg(m, t) : showAdminStatus(m, t);
-const domainSchool = prefix => prefix === "sch" ? detailSchoolId() : null;
-
-async function renderDomains(prefix, schoolId) {
-    const table = document.getElementById(prefix + "DomainsTable");
-    if (!table) return;
-    try {
-        const list = await storage.loadDomains(schoolId);
-        table.innerHTML = `<thead><tr><th>Домейн</th><th>Поддомейни</th><th>Активен</th><th>Предупреждение</th><th></th></tr></thead><tbody>` +
-            (list.length ? list.map(d => `<tr>
-                <td><strong>@${escapeHtml(d.domain)}</strong></td>
-                <td><input type="checkbox" ${d.allow_subdomains ? "checked" : ""} aria-label="Поддомейни" onchange="toggleDomain('${prefix}', ${Number(d.id)}, 'sub', this)"></td>
-                <td><input type="checkbox" ${d.active ? "checked" : ""} aria-label="Активен" onchange="toggleDomain('${prefix}', ${Number(d.id)}, 'active', this)"></td>
-                <td>${Number(d.conflict_count) > 0
-                    ? `<span class="warn-text">⚠ Домейнът е активен и в друго активно училище${d.conflict_names && d.conflict_names.length ? ` (${escapeHtml(d.conflict_names.join(", "))})` : ""}. Регистрацията с него се отказва – ползвайте покани.</span>` : ""}</td>
-                <td><button class="btn-danger btn-compact" onclick="removeDomainAction('${prefix}', ${Number(d.id)})">Премахни</button></td>
-            </tr>`).join("") : `<tr><td colspan="5">Няма домейни – регистрация по домейн не е възможна (само с покана).</td></tr>`) + `</tbody>`;
-    } catch (error) {
-        table.innerHTML = `<tbody><tr><td>${escapeHtml(friendlyError(error, "Неуспешно зареждане на домейните."))}</td></tr></tbody>`;
-    }
-}
-
-async function addDomainAction(prefix) {
-    const v = validateDomainInput(document.getElementById(prefix + "DomainInput").value);
-    if (!v.ok) { domainMsg(prefix, v.error, "error"); return; }
-    try {
-        await storage.addDomain(v.domain, document.getElementById(prefix + "DomainSub").checked, domainSchool(prefix));
-        document.getElementById(prefix + "DomainInput").value = "";
-        document.getElementById(prefix + "DomainSub").checked = false;
-        await renderDomains(prefix, domainSchool(prefix));
-        if (prefix === "sch") { await storage.loadSchools(); renderSchoolsList(); }
-        domainMsg(prefix, `Домейн @${v.domain} е добавен.`, "success");
-    } catch (error) { domainMsg(prefix, friendlyError(error, "Неуспешно добавяне на домейн."), "error"); }
-}
-
-async function toggleDomain(prefix, id, which, box) {
-    const d = (storage.getDomains() || []).find(x => Number(x.id) === Number(id));
-    if (!d) return;
-    const active = which === "active" ? box.checked : d.active;
-    const sub = which === "sub" ? box.checked : d.allow_subdomains;
-    if (which === "active" && !active && !confirm(`Да бъде ли деактивиран домейн @${d.domain}? Нови регистрации с него няма да се приемат.`)) { box.checked = true; return; }
-    try {
-        await storage.updateDomain(id, active, sub);
-        domainMsg(prefix, "Домейнът е обновен.", "success");
-    } catch (error) { domainMsg(prefix, friendlyError(error, "Неуспешна промяна."), "error"); }
-    await renderDomains(prefix, domainSchool(prefix));
-}
-
-async function removeDomainAction(prefix, id) {
-    const d = (storage.getDomains() || []).find(x => Number(x.id) === Number(id));
-    if (!d || !confirm(`Да бъде ли премахнат домейн @${d.domain}? Съществуващите потребители не се засягат.`)) return;
-    try {
-        await storage.removeDomain(id);
-        await renderDomains(prefix, domainSchool(prefix));
-        if (prefix === "sch") { await storage.loadSchools(); renderSchoolsList(); }
-        domainMsg(prefix, "Домейнът е премахнат.", "success");
-    } catch (error) { domainMsg(prefix, friendlyError(error, "Неуспешно премахване."), "error"); }
-}
-
-// ---------- покана ----------
-async function inviteTeacherAction(btn) {
-    const v = validateInviteEmail(document.getElementById("inviteEmail").value);
-    if (!v.ok) { showAdminStatus(v.error, "error"); return; }
-    setBusy(btn, true, "Изпращане...");
-    try {
-        await storage.inviteTeacher(v.email, null);
-        document.getElementById("inviteEmail").value = "";
-        showAdminStatus(`Поканата за ${v.email} е записана. Потребителят може да се регистрира с този имейл.`, "success");
-    } catch (error) { showError(error, "Неуспешна покана."); }
-    finally { setBusy(btn, false); }
-}
-
-// ---------- график на часовете ----------
-async function renderScheduleAdmin() {
-    const box = document.getElementById("scheduleEditor");
-    if (!box) return;
-    await storage.loadSchedule(true);
-    setSchedule(storage.getSchedule());
-    applyScheduleToUI();
-    const sch = getSchedule();
-    document.getElementById("scheduleModeSelect").value = sch.mode;
-    document.getElementById("scheduleModeInfo").textContent = sch.mode === "one_shift"
-        ? "Една смяна: интервалите се задават свободно (до 14). Добавяне – само в края; премахва се само последният неизползван."
-        : "Две смени: 7 позиции на смяна; I смяна → 12:35–18:30, II смяна → 07:30–13:15 (по подразбиране). Часовете може да се коригират.";
-    const byShift = sh => sch.intervals.filter(i => i.shift === sh);
-    const block = sh => {
-        const list = byShift(sh);
-        const last = list.length ? list[list.length - 1].position : 0;
-        return `<h4>${escapeHtml(sch.mode === "one_shift" ? "Единна смяна" : shiftName(sh))}</h4>
-        <div class="schedule-wrapper"><table class="classes-table"><thead><tr><th>№</th><th>Начало</th><th>Край</th><th>Консултации</th><th></th></tr></thead><tbody>` +
-            list.map(i => `<tr>
-                <td>${i.position}</td>
-                <td><input type="time" id="iv_s_${sh}_${i.position}" value="${escapeHtml(i.start)}" aria-label="Начало ${i.position}"></td>
-                <td><input type="time" id="iv_e_${sh}_${i.position}" value="${escapeHtml(i.end)}" aria-label="Край ${i.position}"></td>
-                <td class="num">${i.used == null ? "—" : i.used}</td>
-                <td class="cell-actions-col">
-                    <button class="btn-primary btn-compact" onclick="saveIntervalAction(${sh}, ${i.position}, this)">Запази</button>
-                    ${sch.mode === "one_shift" && i.position === last && list.length > 1 ? `<button class="btn-danger btn-compact" onclick="deleteIntervalAction(${sh}, ${i.position})">Премахни</button>` : ""}
-                </td></tr>`).join("") +
-            (sch.mode === "one_shift" && last < 14 ? `<tr><td>${last + 1}</td>
-                <td><input type="time" id="iv_s_${sh}_${last + 1}" aria-label="Ново начало"></td>
-                <td><input type="time" id="iv_e_${sh}_${last + 1}" aria-label="Нов край"></td><td></td>
-                <td><button class="btn-secondary btn-compact" onclick="saveIntervalAction(${sh}, ${last + 1}, this)">Добави</button></td></tr>` : "") +
-            `</tbody></table></div>`;
-    };
-    box.innerHTML = activeShifts().map(block).join("");
-}
-
-async function changeScheduleMode(btn) {
-    const mode = document.getElementById("scheduleModeSelect").value;
-    if (mode === scheduleMode()) { showAdminStatus("Режимът вече е този.", "success"); return; }
-    setBusy(btn, true, "Проверка...");
-    try {
-        const impact = await storage.scheduleImpact(mode);
-        if (impact.blocked) { showAdminStatus(impact.reason, "error"); return; }
-        const total = Number(impact.consultations_total) || 0;
-        const text = `Да бъде ли сменен режимът на „${scheduleModeLabel(mode)}“?\n\n` +
-            (total ? `Съществуващите консултации (${total}) НЕ се изтриват и не се променят; променя се само показването на часовете.\n` : "") +
-            `Консултациите са по ден + смяна + час.`;
-        if (!confirm(text)) return;
-        await storage.setScheduleMode(mode, true);
-        setSchedule(storage.getSchedule());
-        await storage.refresh();
-        applyScheduleToUI();
-        renderViews();
-        await renderScheduleAdmin();
-        showAdminStatus("Режимът е сменен.", "success");
-    } catch (error) { showError(error, "Неуспешна смяна на режима."); }
-    finally { setBusy(btn, false); }
-}
-
-async function saveIntervalAction(shift, position, btn) {
-    const start = document.getElementById(`iv_s_${shift}_${position}`).value;
-    const end = document.getElementById(`iv_e_${shift}_${position}`).value;
-    const list = getSchedule().intervals.filter(i => i.shift === shift);
-    const prev = list.find(i => i.position === position - 1);
-    const next = list.find(i => i.position === position + 1);
-    const v = validateIntervalInput({ start, end, prevEnd: prev ? prev.end : "", nextStart: next ? next.start : "" });
-    if (!v.ok) { showAdminStatus(v.errors.join("\n"), "error"); return; }
-    const cur = list.find(i => i.position === position);
-    const used = cur && cur.used ? cur.used : 0;
-    let confirmed = false;
-    if (cur && used && (cur.start !== v.start || cur.end !== v.end)) {
-        if (!confirm(`Интервалът се използва от ${used} консултации. Промяната на часа ще се отрази на всички. Да продължа ли?`)) return;
-        confirmed = true;
-    }
-    setBusy(btn, true, "Записване...");
-    try {
-        await storage.saveInterval(shift, position, v.start, v.end, confirmed);
-        setSchedule(storage.getSchedule());
-        applyScheduleToUI();
-        renderViews();
-        await renderScheduleAdmin();
-        showAdminStatus("Интервалът е запазен.", "success");
-    } catch (error) { showError(error, "Неуспешно запазване на интервала."); }
-    finally { setBusy(btn, false); }
-}
-
-async function deleteIntervalAction(shift, position) {
-    if (!confirm(`Да бъде ли премахнат интервал ${position}?`)) return;
-    try {
-        await storage.deleteInterval(shift, position);
-        setSchedule(storage.getSchedule());
-        applyScheduleToUI();
-        renderViews();
-        await renderScheduleAdmin();
-        showAdminStatus("Интервалът е премахнат.", "success");
-    } catch (error) { showError(error, "Неуспешно премахване."); }
 }

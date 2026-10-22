@@ -22,10 +22,6 @@
             </div>
         </div>
         <div id="headerSchool" class="header-school"></div>
-        <div id="schoolIndicator" class="school-indicator hidden" role="status" aria-live="polite">
-            <span id="schoolIndicatorName" class="school-indicator-name"></span>
-            <button id="schoolBackBtn" type="button" class="btn-secondary btn-compact hidden" onclick="backToGlobalView()">Глобален изглед</button>
-        </div>
         <div class="header-user">
             <span id="headerUser" class="user-name"></span>
             <span id="currentTeacher" class="sr-only"></span>
@@ -61,14 +57,6 @@
         </button>
     </div>
 
-    <div id="superNavBlock" class="nav-group hidden">
-        <div class="nav-heading">Платформа</div>
-        <button type="button" class="nav-item" data-nav="schools" onclick="showSchoolsScreen()">
-            <i data-lucide="building-2"></i>
-            <span>Училища</span>
-        </button>
-    </div>
-
     <div id="adminToolbarBlock" class="nav-group hidden">
         <div class="nav-heading">Администрация</div>
 
@@ -80,16 +68,6 @@
         <button type="button" class="nav-item" data-nav="admin-users" onclick="showAdminScreen('users')">
             <i data-lucide="users"></i>
             <span>Потребители</span>
-        </button>
-
-        <button type="button" class="nav-item" data-nav="admin-domains" onclick="showAdminScreen('domains')">
-            <i data-lucide="at-sign"></i>
-            <span>Домейни</span>
-        </button>
-
-        <button type="button" class="nav-item" data-nav="admin-schedule" onclick="showAdminScreen('schedule')">
-            <i data-lucide="clock"></i>
-            <span>График на часовете</span>
         </button>
 
         <button type="button" class="nav-item" data-nav="admin-classes" onclick="showAdminScreen('classes')">
@@ -146,7 +124,7 @@
         </div>
         <div class="form-group">
             <label for="authEmail">Имейл</label>
-            <input id="authEmail" type="email" autocomplete="username" placeholder="name@school.example">
+            <input id="authEmail" type="email" autocomplete="username" placeholder="name@paisii.info">
         </div>
         <div class="form-group">
             <label for="authPassword">Парола</label>
@@ -162,84 +140,6 @@
         <button id="authSubmit" class="btn-primary" onclick="submitAuth()">Вход</button>
         <div style="margin-top:20px;">
             <button id="authToggle" class="btn-secondary" onclick="toggleAuthMode()">Нова регистрация</button>
-        </div>
-    </section>
-
-    <!-- ДОСТЪПЪТ Е СПРЯН (няма членство / неактивно училище) -->
-    <section id="blockedScreen" class="card login-card hidden">
-        <h2>Достъпът е спрян</h2>
-        <p id="blockedText">Нямате достъп до активно училище.</p>
-        <button type="button" class="btn-secondary" onclick="logout()">Изход</button>
-    </section>
-
-    <!-- УЧИЛИЩА (супер администратор) -->
-    <section id="schoolsScreen" class="hidden admin-panel">
-        <div class="page-head"><h2 class="page-title">Училища</h2></div>
-        <div id="schoolsStatus" class="status" role="status" aria-live="polite"></div>
-
-        <div class="card form-card">
-            <h3>Ново училище</h3>
-            <div class="form-group">
-                <label for="newSchoolName">Име на училището</label>
-                <input id="newSchoolName" type="text" maxlength="150" autocomplete="off">
-            </div>
-            <div class="form-group">
-                <label for="newSchoolDomain">Имейл домейн (по желание)</label>
-                <input id="newSchoolDomain" type="text" maxlength="253" placeholder="school.example.bg" autocomplete="off">
-            </div>
-            <button id="newSchoolBtn" type="button" class="btn-primary" onclick="createSchoolAction(this)">Създай училище</button>
-        </div>
-
-        <div class="card">
-            <h3>Всички училища</h3>
-            <div class="school-filters">
-                <input id="schoolSearch" type="search" placeholder="Търсене по име или домейн..." oninput="renderSchoolsList()" aria-label="Търсене на училище">
-                <select id="schoolStatusFilter" onchange="renderSchoolsList()" aria-label="Статус">
-                    <option value="">Всички</option>
-                    <option value="active">Активни</option>
-                    <option value="inactive">Неактивни</option>
-                </select>
-            </div>
-            <div class="schedule-wrapper"><table id="schoolsTable"></table></div>
-        </div>
-
-        <div id="schoolDetail" class="card hidden" aria-live="polite">
-            <h3 id="schoolDetailTitle">Училище</h3>
-            <input id="schoolDetailId" type="hidden">
-            <div class="settings-row">
-                <div class="form-group">
-                    <label for="schoolDetailName">Име</label>
-                    <input id="schoolDetailName" type="text" maxlength="150" autocomplete="off">
-                </div>
-                <div class="form-group">
-                    <label for="schoolDetailStatus">Статус</label>
-                    <select id="schoolDetailStatus">
-                        <option value="active">Активно</option>
-                        <option value="inactive">Неактивно</option>
-                    </select>
-                </div>
-            </div>
-            <p id="schoolDetailCounts" class="muted small"></p>
-            <div class="toolbar-actions">
-                <button id="schoolSaveBtn" type="button" class="btn-primary" onclick="saveSchoolAction(this)">Запази</button>
-                <button type="button" class="btn-success" onclick="manageSchool()">Управлявай това училище</button>
-                <button type="button" class="btn-secondary" onclick="closeSchoolDetail()">Затвори</button>
-            </div>
-
-            <h4>Имейл домейни</h4>
-            <div class="schedule-wrapper"><table id="schDomainsTable"></table></div>
-            <div class="inline-form">
-                <input id="schDomainInput" type="text" placeholder="school.example.bg" maxlength="253" aria-label="Нов домейн">
-                <label class="check-inline"><input id="schDomainSub" type="checkbox"> с поддомейни</label>
-                <button type="button" class="btn-secondary" onclick="addDomainAction('sch')">Добави домейн</button>
-            </div>
-
-            <h4>Администратори на училището</h4>
-            <div class="schedule-wrapper"><table id="schAdminsTable"></table></div>
-            <div class="inline-form">
-                <input id="schAdminEmail" type="email" placeholder="имейл на регистриран потребител" maxlength="254" aria-label="Имейл на администратор">
-                <button type="button" class="btn-secondary" onclick="addSchoolAdminAction()">Назначи за администратор</button>
-            </div>
         </div>
     </section>
 
@@ -367,48 +267,7 @@
             <div class="card">
                 <h3>Потребители</h3>
                 <div class="schedule-wrapper"><table id="teachersAdmin"></table></div>
-                <p class="muted small" style="margin-bottom:0;">Нови потребители се регистрират сами от екрана за вход с имейл от разрешен домейн на училището (вижте „Домейни“) или с покана; тук се сменят име и роля. Имейл, статус и дата се четат от Auth през защитена функция само за администратор.</p>
-            </div>
-            <div class="card form-card">
-                <h3>Покана за учител</h3>
-                <p class="muted small">Покана позволява регистрация с имейл извън домейните на училището (напр. когато домейнът е общ за две училища).</p>
-                <div class="inline-form">
-                    <input id="inviteEmail" type="email" placeholder="имейл на учителя" maxlength="254" aria-label="Имейл за покана">
-                    <button type="button" class="btn-primary" onclick="inviteTeacherAction(this)">Изпрати покана</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Домейни -->
-        <div data-admin-section="domains" class="admin-section hidden">
-            <div class="card">
-                <h3>Разрешени имейл домейни</h3>
-                <p class="muted small">Само потребители с имейл от активен домейн се регистрират в това училище, винаги като учители. Съвпадението е точно (без подобни домейни); поддомейни – само ако е отбелязано.</p>
-                <div class="schedule-wrapper"><table id="admDomainsTable"></table></div>
-                <div class="inline-form">
-                    <input id="admDomainInput" type="text" placeholder="school.example.bg" maxlength="253" aria-label="Нов домейн">
-                    <label class="check-inline"><input id="admDomainSub" type="checkbox"> с поддомейни</label>
-                    <button type="button" class="btn-primary" onclick="addDomainAction('adm')">Добави домейн</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- График на часовете -->
-        <div data-admin-section="schedule" class="admin-section hidden">
-            <div class="card">
-                <h3>Режим на графика</h3>
-                <div class="inline-form">
-                    <select id="scheduleModeSelect" aria-label="Режим">
-                        <option value="two_shifts">Две смени (I и II)</option>
-                        <option value="one_shift">Една смяна</option>
-                    </select>
-                    <button id="scheduleModeBtn" type="button" class="btn-primary" onclick="changeScheduleMode(this)">Смени режима</button>
-                </div>
-                <p id="scheduleModeInfo" class="muted small"></p>
-            </div>
-            <div class="card">
-                <h3>Интервали на консултациите</h3>
-                <div id="scheduleEditor"></div>
+                <p class="muted small" style="margin-bottom:0;">Нови потребители се регистрират сами от екрана за вход (само с имейл @paisii.info); тук се сменят име и роля. Имейл, статус и дата се четат от Auth през защитена функция само за администратор.</p>
             </div>
         </div>
 
@@ -492,7 +351,7 @@
     </section>
 
         <div class="footer-note">
-        <span id="footerNote">График за консултации</span>
+        Сайтът е разработен в помощ на СУ "Св. Паисий Хилендарски" - Пловдив
     </div>
 </main>
 </div><!-- /app-shell -->
