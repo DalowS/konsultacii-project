@@ -828,7 +828,9 @@ async function changePassword() {
 function startRealtime() {
     stopRealtime();
     realtimeChannel = sb.channel("schedule-sync");
-    ["consultations", "consultation_classes", "group_subjects", "classes", "teachers"].forEach(table => {
+    // v3.0: + настройки/график/училища (миграция 20261015 ги публикува; RLS на сървъра филтрира събитията по училище)
+    ["consultations", "consultation_classes", "group_subjects", "classes", "teachers",
+     "school_settings", "school_schedule_settings", "school_intervals", "schools"].forEach(table => {
         realtimeChannel.on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload);
     });
     realtimeChannel.subscribe(status => {
@@ -862,6 +864,13 @@ async function reloadData() {
     if (!currentUser) return;
     try {
         if (!activeSchool) return;                      // глобален изглед: няма данни на училище
+        // Роля/училище/статус могат да са се променили на сървъра (деактивирано училище, махнат админ) -> нов вход в контекста
+        if (await contextChanged()) {
+            const session = await auth.getSession();
+            currentUser = null;
+            await handleSession(session);
+            return;
+        }
         await storage.loadSchedule(isAdmin);
         setSchedule(storage.getSchedule());
         applyScheduleToUI();
@@ -872,6 +881,18 @@ async function reloadData() {
         renderHeader();
     } catch (error) {
         console.error(error);
+    }
+}
+
+// Сървърът е източникът на истината за роля/училище; сравняваме, без да вярваме на клиентското състояние.
+async function contextChanged() {
+    try {
+        const p = await auth.loadProfile({ id: currentUser.id, email: currentUser.email });
+        return !!p.blocked || !!p.is_super_admin !== isSuperAdmin || !!p.is_admin !== isAdmin ||
+            (p.school ? p.school.id : null) !== (activeSchool ? activeSchool.id : null);
+    } catch (error) {
+        console.error(error);
+        return false;                                 // временна грешка: не изхвърляме потребителя
     }
 }
 

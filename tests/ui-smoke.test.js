@@ -1132,12 +1132,13 @@ test("v2.9: бизнес правилата са непроменени (сво�
 });
 
 /* ===================== v2.9 – завършване ===================== */
-test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна); след нея са само трите v3.0; 20261010 има домейн trigger и RLS", () => {
+test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна); след нея са само четирите v3.0; 20261010 има домейн trigger и RLS", () => {
     const dir = path.join(__dirname, "..", "supabase", "migrations");
     const files = fs.readdirSync(dir).filter(f => f.endsWith(".sql")).sort();
     // v3.0 добавя САМО нови миграции след 20261011 (старите не се редактират – вж. теста с контролните суми)
     assert.deepEqual(files.slice(files.indexOf("20261011000000_free_shift_selection.sql") + 1), [
-        "20261012000000_multi_school_foundation.sql", "20261013000000_multi_school_access_control.sql", "20261014000000_school_schedule_config.sql"]);
+        "20261012000000_multi_school_foundation.sql", "20261013000000_multi_school_access_control.sql", "20261014000000_school_schedule_config.sql",
+        "20261015000000_multi_school_hardening.sql"]);
     const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
     const m11 = strip(fs.readFileSync(path.join(dir, "20261011000000_free_shift_selection.sql"), "utf8"));
     assert.match(m11, /create or replace function public\._save_consultation\(/);
@@ -1224,4 +1225,25 @@ test("v3.0: един режим на смяна – динамични смен�
     assert.deepEqual(t.run(`activeShifts()`), [1, 2]);
     assert.equal(t.run(`shiftName(2)`), "II смяна");
     assert.doesNotMatch(html9().match(/<select id="shiftSelect"[^>]*>/)[0], /disabled|readonly|hidden/i);
+});
+
+test("v3.0 одит: при презареждане промяна на контекста на сървъра (деактивирано училище) връща екрана „Достъпът е спрян“", async () => {
+    const t = setup();
+    for (const id of ["loadingScreen", "loginScreen", "blockedScreen", "schoolsScreen", "teacherScreen", "adminScreen", "profileScreen"])
+        realClassList(t.run(`document.getElementById("${id}")`), ["hidden"]);
+    t.run(`globalThis.__profile = { id: "u1", name: "Мария", role: "admin", blocked: false, is_admin: true, is_super_admin: false, school: { id: "s1", name: "А", status: "active" } };
+           auth.loadProfile = async () => globalThis.__profile; auth.getSession = async () => ({ user: { id: "u1", email: "u@x.bg" } });
+           storage.refresh = async () => {}; storage.loadSettings = async () => null; storage.loadSchedule = async () => null; startRealtime = () => {};`);
+    await t.run(`handleSession({ user: { id: "u1", email: "u@x.bg" } })`);
+    assert.equal(t.run(`currentUser.id`), "u1");
+    assert.equal(t.run(`activeSchool.id`), "s1");
+    // без промяна – няма повторен вход
+    t.run(`globalThis.__n = 0; const o = auth.loadProfile; auth.loadProfile = async (...a) => { __n++; return o(...a); };`);
+    await t.run(`reloadData()`);
+    assert.equal(t.run(`currentUser && !isVisible("blockedScreen")`), true);
+    // училището е деактивирано на сървъра
+    t.run(`globalThis.__profile = { id: "u1", name: "Мария", role: null, blocked: true, blocked_reason: "school_inactive", is_admin: false, is_super_admin: false, school: null };`);
+    await t.run(`reloadData()`);
+    assert.equal(t.run(`isVisible("blockedScreen")`), true);
+    assert.match(t.elements.blockedText.textContent, /неактивно/);
 });

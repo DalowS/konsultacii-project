@@ -265,10 +265,23 @@ test("1-3 (SQL, статична проверка): слотът е (ден, с�
     assert.ok(/p_hour not between 1 and 7/.test(code));
 });
 
-test("никоя миграция след v2.3 не връща физическия слот; последната дефиниция на _save_consultation е v2.3", () => {
+// LEGACY (обновено за v3.0): в v2.3 тестът искаше 20261008 да е ПОСЛЕДНАТА миграция. Намерението е „нищо след v2.3 не
+// връща физическия слот и логическият слот остава (ден, смяна, час)“. Новите миграции (20261009+, вкл. v3.0) са умишлени,
+// затова проверяваме намерението, а не името на последния файл. Оригиналният v2.9 също падаше на старата форма.
+test("никоя миграция след v2.3 не връща физическия слот; логическият слот (ден, смяна, час) остава в последната дефиниция на _save_consultation", () => {
     const dir = __dirname + "/../supabase/migrations/";
-    const files = fs.readdirSync(dir).sort();
-    assert.equal(files[files.length - 1], "20261008000000_independent_shifts.sql");
+    const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+    const after = fs.readdirSync(dir).filter(f => f.endsWith(".sql")).sort().filter(f => f.slice(0, 14) > "20261008000000");
+    assert.ok(after.length >= 4);
+    for (const f of after) {
+        const code = strip(fs.readFileSync(dir + f, "utf8"));
+        assert.ok(!/slot_of|v_slot|physical_slot/i.test(code), f + " не бива да връща физическия слот");
+    }
+    // последната дефиниция на _save_consultation (v3.0: по училище) – конфликти по ден+смяна+час
+    const m13 = strip(fs.readFileSync(dir + "20261013000000_multi_school_access_control.sql", "utf8"));
+    const fn = m13.slice(m13.indexOf("function public._save_consultation"));
+    assert.ok(/c\.shift = p_shift and c\.hour = p_hour/.test(fn));
+    assert.ok(/o\.day = p_day and o\.shift = p_shift and o\.hour = p_hour/.test(fn));
 });
 
 /* ===================== v2.4: свързани смени, конфликти при попълване ===================== */
@@ -385,12 +398,14 @@ test("етапи на консултация и подредба по време
     assert.deepEqual(sorted.map(r => r.id), ["4", "3", "2", "1"]);
 });
 
-test("v2.4: сървърната валидация не е променена (няма нова миграция) и UX проверката е само огледало", () => {
-    const dir = __dirname + "/../supabase/migrations/";
-    assert.equal(fs.readdirSync(dir).sort().pop(), "20261008000000_independent_shifts.sql");
+// LEGACY (обновено за v3.0): „няма нова миграция“ беше вярно само в v2.4. Намерението: UX проверката е огледало на
+// сървъра и записът минава през RPC.
+test("v2.4: UX проверката е само огледало на сървърната валидация; записът минава през RPC", () => {
     const app = fs.readFileSync(__dirname + "/../js/app.js", "utf8");
     assert.ok(/storage\.(add|update)\(/.test(app));                 // записът продължава през RPC
     assert.ok(/evaluateSelection\(storage\.getAll\(\), ctx\.params\)/.test(app));
+    const st = fs.readFileSync(__dirname + "/../js/storage.js", "utf8");
+    assert.ok(/sb\.rpc\("save_consultation"/.test(st));
 });
 
 /* ---- v2.6: логическият слот е само ден + смяна + час (12:35–13:15 е етикет) ---- */

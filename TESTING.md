@@ -83,5 +83,6 @@
 - По желание: Dashboard → Authentication → Hooks → *Before User Created* → `public.hook_before_user_created`.
 
 ## v3.0
-- `node --test tests/logic.test.js tests/ui-smoke.test.js` (№22 и №32 падат и в оригиналния v2.9 – не са променяни).
+- `node --test tests/logic.test.js tests/ui-smoke.test.js` (135/135; №22/№32 са обновени като legacy, вж. AUDIT_v3.0.md).
 - `supabase/tests/v3_0_multi_school_checks.sql` и `supabase/tests/local-harness/run_migration_scenarios.sh` – върху локален PostgreSQL със Supabase stub (не реален Supabase). Вж. MULTI_SCHOOL.md, т. 9.
+- `bash supabase/tests/local-harness/audit_checks.sh` – запазване на данните при миграция, preflight, домейни/покани (локален PostgreSQL, не реален Supabase).
