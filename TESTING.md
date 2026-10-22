@@ -81,3 +81,7 @@
 - SQL проверка: `supabase/tests/v2_9_checks.sql` (ROLLBACK, всички редове `ok = true`) и `v2_6_slot_checks.sql`.
 - Ръчно с реален Supabase: регистрация с @gmail.com трябва да се откаже (съобщение от клиента и/или „Database error saving new user“ от Auth); смяна на парола; запис в „Настройки“ като admin и опит като teacher; „Потребители“ показва имейл/статус/дата.
 - По желание: Dashboard → Authentication → Hooks → *Before User Created* → `public.hook_before_user_created`.
+
+## v3.0
+- `node --test tests/logic.test.js tests/ui-smoke.test.js` (№22 и №32 падат и в оригиналния v2.9 – не са променяни).
+- `supabase/tests/v3_0_multi_school_checks.sql` и `supabase/tests/local-harness/run_migration_scenarios.sh` – върху локален PostgreSQL със Supabase stub (не реален Supabase). Вж. MULTI_SCHOOL.md, т. 9.

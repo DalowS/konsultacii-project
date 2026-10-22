@@ -446,12 +446,25 @@ test("v2.6 тест 6: обратна посока – първо Прогимн
 });
 
 /* ---- v2.9: регистрация, пароли, настройки, заглавна лента (чиста логика) ---- */
-test("v2.9: имейл – само @paisii.info, trim + lowercase, без заобикаляне", () => {
+test("v3.0: имейл – нормализация и проверка на форма в клиента; домейнът се налага на сървъра", () => {
+    // v2.9 имаше твърд клиентски списък (@paisii.info). От v3.0 разрешените домейни са по училище и се пазят в базата
+    // (school_email_domains), затова клиентът проверява само формата – вж. supabase/tests/v3_0_multi_school_checks.sql.
     assert.equal(L.normalizeEmail("  Ivan@Paisii.INFO "), "ivan@paisii.info");
-    for (const ok of ["ivan@paisii.info", "maria@paisii.info", " IVAN@PAISII.INFO "]) assert.equal(L.isAllowedEmail(ok), true, ok);
-    for (const bad of ["a@gmail.com", "a@abv.bg", "a@yahoo.com", "a@outlook.com", "a@paisii.info.evil.com", "a@notpaisii.info",
-                       "a@sub.paisii.info", "paisii.info", "@paisii.info", "a b@paisii.info", "a@paisii.info@x.com", "", null, undefined])
+    for (const ok of ["ivan@paisii.info", "maria@school.example.bg", " IVAN@PAISII.INFO ", "a@gmail.com"]) assert.equal(L.isAllowedEmail(ok), true, ok);
+    for (const bad of ["paisii.info", "@paisii.info", "a b@paisii.info", "a@paisii", "", null, undefined])
         assert.equal(L.isAllowedEmail(bad), false, String(bad));
+});
+
+test("v3.0: домейни, покани и име на училище – валидация в клиента", () => {
+    assert.deepEqual(L.validateDomainInput("  @School.Example.BG. ").domain, "school.example.bg");
+    assert.equal(L.validateDomainInput("school.example.bg").ok, true);
+    for (const bad of ["", "localhost", "a_b.bg", "-a.bg", "a..bg", "https://a.bg", "a b.bg", "a.bg/x", "@"]) assert.equal(L.validateDomainInput(bad).ok, false, bad);
+    assert.equal(L.validateInviteEmail(" A@B.bg ").email, "a@b.bg");
+    assert.equal(L.validateInviteEmail("nope").ok, false);
+    assert.equal(L.validateSchoolName("  СУ  ").name, "СУ");
+    assert.equal(L.validateSchoolName("   ").ok, false);
+    assert.equal(L.validateSchoolName("x".repeat(151)).ok, false);
+    assert.equal(L.roleLabel("super_admin"), "Супер администратор");
 });
 
 test("v2.9: валидация на парола (8+, главна, малка, цифра)", () => {
@@ -468,7 +481,7 @@ test("v2.9: validateRegistration – име, имейл, парола, повт�
     const ok = { name: "Иван Иванов", email: " IVAN@Paisii.info", password: "Abcdef12", password2: "Abcdef12" };
     const r = L.validateRegistration(ok);
     assert.equal(r.ok, true); assert.equal(r.email, "ivan@paisii.info");
-    assert.match(L.validateRegistration({ ...ok, email: "a@gmail.com" }).errors.join(), /само с имейл от домейна @paisii\.info/);
+    assert.equal(L.validateRegistration({ ...ok, email: "a@gmail.com" }).ok, true);      // v3.0: домейнът се решава на сървъра
     assert.match(L.validateRegistration({ ...ok, email: "не-имейл" }).errors.join(), /валиден имейл/);
     assert.match(L.validateRegistration({ ...ok, name: "" }).errors.join(), /име и фамилия/);
     assert.match(L.validateRegistration({ ...ok, name: "Ив" }).errors.join(), /между 3 и 100/);
