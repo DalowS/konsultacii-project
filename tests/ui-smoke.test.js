@@ -1247,3 +1247,37 @@ test("v3.0 одит: при презареждане промяна на кон�
     assert.equal(t.run(`isVisible("blockedScreen")`), true);
     assert.match(t.elements.blockedText.textContent, /неактивно/);
 });
+
+test("v3.0 PGRST201: всеки embed в .select() е уточнен с !<FK> и FK-то съществува в миграциите (между таблиците има по две връзки)", () => {
+    const root = path.join(__dirname, "..");
+    const mig = fs.readdirSync(path.join(root, "supabase", "migrations")).filter(f => f.endsWith(".sql"))
+        .map(f => fs.readFileSync(path.join(root, "supabase", "migrations", f), "utf8")).join("\n");
+    const definedFks = new Set([...mig.matchAll(/constraint\s+([a-z0-9_]+)/gi)].map(m => m[1]));
+    let embeds = 0;
+    for (const f of ["storage.js", "app.js", "auth.js"]) {
+        const code = fs.readFileSync(path.join(root, "js", f), "utf8");
+        // съдържание на .select( ... ) с балансиране на скобите, само низовите литерали (в т.ч. конкатенирани)
+        let i = -1;
+        while ((i = code.indexOf(".select(", i + 1)) !== -1) {
+            let depth = 1, j = i + 8, inStr = false;
+            for (; j < code.length && depth > 0; j++) {
+                const c = code[j];
+                if (c === '"') inStr = !inStr;
+                else if (!inStr && c === "(") depth++;
+                else if (!inStr && c === ")") depth--;
+            }
+            const body = code.slice(i + 8, j - 1).replace(/\/\/[^\n]*/g, "");
+            const text = [...body.matchAll(/"([^"]*)"/g)].map(m => m[1]).join("");
+            for (const e of text.matchAll(/([a-z_]+)(!([a-z0-9_]+))?\(/g)) {
+                embeds++;
+                assert.ok(e[3], `${f}: embed „${e[1]}(“ в .select() е без FK подсказка`);
+                assert.ok(definedFks.has(e[3]), `${f}: FK „${e[3]}“ не е дефиниран в миграциите`);
+            }
+        }
+    }
+    assert.equal(embeds, 3, "очакваме точно 3 embed-а (teachers, consultation_classes, classes)");
+    const st = fs.readFileSync(path.join(root, "js", "storage.js"), "utf8");
+    assert.match(st, /teachers!consultations_teacher_school_fk\(name\)/);
+    assert.match(st, /consultation_classes!consultation_classes_consultation_school_fk\(classes!consultation_classes_class_school_fk\(name\)\)/);
+    assert.doesNotMatch(st.replace(/\/\/[^\n]*/g, ""), /[,"]teachers\(|[(,]classes\(|[,"]consultation_classes\(/);
+});
