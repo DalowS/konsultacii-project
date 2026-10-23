@@ -1,5 +1,8 @@
 /* Приложение "График за консултации" – UI слой (данни: storage.js, вход: auth.js, логика: logic.js). */
 "use strict";
+// Маркер за версията – в Console трябва да се вижда при зареждане; помага да се познае стар кеш/недокачен деплой.
+const APP_BUILD = "3.0.2 (embed FK: consultations_teacher_school_fk)";
+console.info("[График за консултации] build " + APP_BUILD);
 
 const CONFIG = {
     schoolName: "Училище",
