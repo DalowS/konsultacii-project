@@ -897,20 +897,21 @@ test("v2.9 header: срок/година и име на училището ид�
     // v3.1: името на училището идва от сървърния контекст (activeSchool от get_my_context), срокът/годината – от настройките
     t.run(`activeSchool = {id:"s1", name:${JSON.stringify(SETTINGS.school_name)}, status:"active"}; storage._settings = ${JSON.stringify(SETTINGS)}; renderHeader();`);
     assert.equal(t.elements.headerTerm.textContent, "I срок · 2026/2027");
-    assert.equal(t.elements.headerSchool.textContent, SETTINGS.school_name);
+    assert.equal(t.elements.schoolIndicatorName.textContent, SETTINGS.school_name);
     // разминаване настройки/контекст: заглавието следва КОНТЕКСТА, не настройките
     t.run(`storage._settings = {school_name:"Друго училище", academic_year:"2027/2028", current_term:"II"}; renderHeader();`);
-    assert.equal(t.elements.headerSchool.textContent, SETTINGS.school_name);
+    assert.equal(t.elements.schoolIndicatorName.textContent, SETTINGS.school_name);
     assert.equal(t.elements.headerTerm.textContent, "II срок · 2027/2028");
     // без контекст (изход / глобален изглед) – нищо измислено
     t.run(`activeSchool = null; storage._settings = null; renderHeader();`);
-    assert.equal(t.elements.headerSchool.textContent, "");
+    assert.equal(t.elements.schoolIndicatorName.textContent, "");
     assert.equal(t.elements.headerTerm.textContent, "");
     // статично: нищо hard-coded
     const html = html9(), code = ["app.js", "logic.js", "storage.js"].map(f => fs.readFileSync(path.join(__dirname, "..", "js", f), "utf8")).join("\n");
     assert.doesNotMatch(html, /Св\. Паисий|Пловдив/);
     assert.doesNotMatch(code.replace(/\/\/[^\n]*/g, ""), /Св\. Паисий|Пловдив|schoolName\s*=\s*["']/);
-    assert.match(html, /<div id="headerSchool" class="header-school"><\/div>/);
+    assert.doesNotMatch(html, /id="headerSchool"/);                        // v3.1.2: училището е само веднъж – в индикатора вдясно
+    assert.match(html, /<div class="header-right">[\s\S]*id="schoolIndicator"[\s\S]*class="header-user"/);
     assert.doesNotMatch(html.match(/<h1>[^<]*<\/h1>/)[0], /20\d\d/);
 });
 
@@ -924,13 +925,13 @@ test("v2.9 header: потребител „Име · Роля“ за админ
     assert.equal(t.elements.headerUser.textContent, "");
 });
 
-test("v2.9 header: училището е центрирано спрямо лентата (равни странични колони), навигацията не е в header-а", () => {
+test("v3.1.2 header: flex space-between (ляво заглавие, вдясно училище+потребител, без центриране), навигацията не е в header-а", () => {
     const css = css9(), html = html9();
-    assert.match(css, /\.header-inner \{[^}]*grid-template-columns: 1fr auto 1fr/);
-    assert.match(css, /\.header-school \{[^}]*justify-self: center/);
+    assert.match(css, /\.header-inner \{[^}]*display: flex;[^}]*justify-content: space-between/);
+    assert.match(css, /\.header-right \{[^}]*justify-content: flex-end/);
+    assert.doesNotMatch(css, /\.header-school|grid-template-columns: 1fr auto 1fr/);
     const header = html.match(/<header[\s\S]*?<\/header>/)[0];
     assert.doesNotMatch(header, /showMyConsultations|showAdminScreen|showTeacherScreen/);
-    assert.match(header, /onclick="logout\(\)"/);
 });
 
 test("v2.9 sidebar: групи, елементи, запазени handler-и", () => {
@@ -1019,7 +1020,7 @@ test("v2.9 настройки: валидация преди запис, RPC с 
     const [name, args] = t.run("__rpc")[0];
     assert.equal(name, "admin_update_school_settings");
     assert.deepEqual({ ...args }, { p_school_name: "Ново училище", p_academic_year: "2027/2028", p_current_term: "II" });
-    assert.equal(t.elements.headerSchool.textContent, "Ново училище");
+    assert.equal(t.elements.schoolIndicatorName.textContent, "Ново училище");
     assert.equal(t.elements.headerTerm.textContent, "II срок · 2027/2028");
     assert.match(t.elements.adminStatus.textContent, /запазени/);
 });
@@ -1309,13 +1310,13 @@ test("v3.1: фронтендът няма изпращане на school_id/role
 test("v3.1: teacher не наследява чуждо училище – applyProfile/teardown следват сървърния профил; няма клиентско хранилище за училище", () => {
     const t = setup();
     t.run(`applyProfile({user_id:"u1", name:"Супер", role:"super_admin", is_super_admin:true, is_admin:true, school:{id:"B", name:"Света Петка", status:"active"}}); renderHeader();`);
-    assert.equal(t.elements.headerSchool.textContent, "Света Петка");
+    assert.equal(t.elements.schoolIndicatorName.textContent, "Света Петка");
     t.run(`teardown();`);
-    assert.equal(t.elements.headerSchool.textContent, "");
+    assert.equal(t.elements.schoolIndicatorName.textContent, "");
     t.run(`applyProfile({user_id:"u2", name:"Мария", role:"teacher", is_super_admin:false, is_admin:false, school:{id:"A", name:"Училище А", status:"active"}}); renderHeader();`);
     assert.equal(t.run("activeSchool.id"), "A");
     assert.equal(t.run("isSuperAdmin"), false);
-    assert.equal(t.elements.headerSchool.textContent, "Училище А");
+    assert.equal(t.elements.schoolIndicatorName.textContent, "Училище А");
     const code = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8").replace(/\/\/[^\n]*/g, "");
     assert.doesNotMatch(code, /localStorage\.(set|get)Item\([^)]*[Ss]chool/);
     assert.doesNotMatch(code, /sessionStorage/);

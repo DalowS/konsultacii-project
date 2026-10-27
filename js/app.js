@@ -1,7 +1,7 @@
 /* Приложение "График за консултации" – UI слой (данни: storage.js, вход: auth.js, логика: logic.js). */
 "use strict";
 // Маркер за версията – в Console трябва да се вижда при зареждане; помага да се познае стар кеш/недокачен деплой.
-const APP_BUILD = "3.1.1 (header = server school context)";
+const APP_BUILD = "3.1.2 (header layout)";
 console.info("[График за консултации] build " + APP_BUILD);
 
 const CONFIG = {
@@ -407,7 +407,6 @@ function renderHeader() {
     set("headerTerm", termLine(settings));
     // Едно-единствен източник: училището от сървърния контекст (get_my_context). Не се ползва school_settings.school_name,
     // за да не може заглавието да се разминава с реалния контекст на данните.
-    set("headerSchool", activeSchool ? activeSchool.name : "");
     set("footerNote", activeSchool
         ? `Сайтът е разработен в помощ на ${activeSchool.name}`
         : "График за консултации");
@@ -416,7 +415,7 @@ function renderHeader() {
     if (ind) {
         ind.classList.toggle("hidden", !currentUser);
         set("schoolIndicatorName", !currentUser ? "" : activeSchool
-            ? `Училище: ${activeSchool.name}${activeSchool.status === "inactive" ? " (неактивно)" : ""}`
+            ? `${activeSchool.name}${activeSchool.status === "inactive" ? " (неактивно)" : ""}`
             : isSuperAdmin ? "Глобален изглед (няма избрано училище)" : "");
         const back = document.getElementById("schoolBackBtn");
         if (back) back.classList.toggle("hidden", !(isSuperAdmin && activeSchool));
