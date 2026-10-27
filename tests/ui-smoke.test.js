@@ -894,15 +894,16 @@ const realClassList = (el, initial = []) => {
 
 test("v2.9 header: срок/година и име на училището идват от настройките, не са във HTML/JS", () => {
     const t = setup();
-    t.run(`storage._settings = ${JSON.stringify(SETTINGS)}; renderHeader();`);
+    // v3.1: името на училището идва от сървърния контекст (activeSchool от get_my_context), срокът/годината – от настройките
+    t.run(`activeSchool = {id:"s1", name:${JSON.stringify(SETTINGS.school_name)}, status:"active"}; storage._settings = ${JSON.stringify(SETTINGS)}; renderHeader();`);
     assert.equal(t.elements.headerTerm.textContent, "I срок · 2026/2027");
     assert.equal(t.elements.headerSchool.textContent, SETTINGS.school_name);
-    // промяна в настройките -> заглавната лента следва
+    // разминаване настройки/контекст: заглавието следва КОНТЕКСТА, не настройките
     t.run(`storage._settings = {school_name:"Друго училище", academic_year:"2027/2028", current_term:"II"}; renderHeader();`);
-    assert.equal(t.elements.headerSchool.textContent, "Друго училище");
+    assert.equal(t.elements.headerSchool.textContent, SETTINGS.school_name);
     assert.equal(t.elements.headerTerm.textContent, "II срок · 2027/2028");
-    // без настройки (миграцията още не е приложена) – нищо измислено
-    t.run(`storage._settings = null; renderHeader();`);
+    // без контекст (изход / глобален изглед) – нищо измислено
+    t.run(`activeSchool = null; storage._settings = null; renderHeader();`);
     assert.equal(t.elements.headerSchool.textContent, "");
     assert.equal(t.elements.headerTerm.textContent, "");
     // статично: нищо hard-coded
@@ -1002,6 +1003,7 @@ test("v2.9 responsive CSS: sidebar постоянен на desktop, зад hambu
 
 test("v2.9 настройки: валидация преди запис, RPC с параметри, заглавната лента се обновява", async () => {
     const t = setup();
+    t.run(`activeSchool = {id:"s1", name:"Старо", status:"active"};`);
     t.run(`sb = { rpc: async (n, a) => { (globalThis.__rpc = globalThis.__rpc || []).push([n, a]); return { data: { school_name: a.p_school_name, academic_year: a.p_academic_year, current_term: a.p_current_term }, error: null }; } }`);
     const set = (n, y, term) => t.run(`document.getElementById("settingsSchoolName").value = ${JSON.stringify(n)}; document.getElementById("settingsYear").value = ${JSON.stringify(y)}; document.getElementById("settingsTerm").value = ${JSON.stringify(term)};`);
     set("", "2026/2027", "I");
@@ -1302,4 +1304,19 @@ test("v3.1: фронтендът няма изпращане на school_id/role
     for (const f of ["super_list_super_admins", "super_add_super_admin", "super_remove_super_admin", "super_cancel_super_admin_invite"])
         assert.ok(st.includes(f), f);
     assert.match(fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8"), /id="superAdminsTable"/);
+});
+
+test("v3.1: teacher не наследява чуждо училище – applyProfile/teardown следват сървърния профил; няма клиентско хранилище за училище", () => {
+    const t = setup();
+    t.run(`applyProfile({user_id:"u1", name:"Супер", role:"super_admin", is_super_admin:true, is_admin:true, school:{id:"B", name:"Света Петка", status:"active"}}); renderHeader();`);
+    assert.equal(t.elements.headerSchool.textContent, "Света Петка");
+    t.run(`teardown();`);
+    assert.equal(t.elements.headerSchool.textContent, "");
+    t.run(`applyProfile({user_id:"u2", name:"Мария", role:"teacher", is_super_admin:false, is_admin:false, school:{id:"A", name:"Училище А", status:"active"}}); renderHeader();`);
+    assert.equal(t.run("activeSchool.id"), "A");
+    assert.equal(t.run("isSuperAdmin"), false);
+    assert.equal(t.elements.headerSchool.textContent, "Училище А");
+    const code = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8").replace(/\/\/[^\n]*/g, "");
+    assert.doesNotMatch(code, /localStorage\.(set|get)Item\([^)]*[Ss]chool/);
+    assert.doesNotMatch(code, /sessionStorage/);
 });

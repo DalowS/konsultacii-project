@@ -1,7 +1,7 @@
 /* Приложение "График за консултации" – UI слой (данни: storage.js, вход: auth.js, логика: logic.js). */
 "use strict";
 // Маркер за версията – в Console трябва да се вижда при зареждане; помага да се познае стар кеш/недокачен деплой.
-const APP_BUILD = "3.1.0 (auth bootstrap + super admins)";
+const APP_BUILD = "3.1.1 (header = server school context)";
 console.info("[График за консултации] build " + APP_BUILD);
 
 const CONFIG = {
@@ -405,9 +405,11 @@ function renderHeader() {
     const settings = storage.getSettings();
     const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
     set("headerTerm", termLine(settings));
-    set("headerSchool", settings ? settings.school_name : (activeSchool ? activeSchool.name : ""));
-    set("footerNote", activeSchool || settings
-        ? `Сайтът е разработен в помощ на ${(settings && settings.school_name) || activeSchool.name}`
+    // Едно-единствен източник: училището от сървърния контекст (get_my_context). Не се ползва school_settings.school_name,
+    // за да не може заглавието да се разминава с реалния контекст на данните.
+    set("headerSchool", activeSchool ? activeSchool.name : "");
+    set("footerNote", activeSchool
+        ? `Сайтът е разработен в помощ на ${activeSchool.name}`
         : "График за консултации");
     // v3.0: винаги видим индикатор за контекста (училище или глобален изглед)
     const ind = document.getElementById("schoolIndicator");
@@ -555,12 +557,26 @@ async function handleSession(session) {
     }
 }
 
+// Диагностика на school context-а: тиха по подразбиране; включва се с ?debug в URL (напр. https://сайт/?debug).
+function schoolDebug(label) {
+    try {
+        if (!/(^|[?&])debug(=|&|$)/.test(location.search)) return;
+        console.info("[school-context] " + label, {
+            authUserId: currentUser && currentUser.id, role: currentUser && currentUser.role,
+            isSuperAdmin, isAdmin, userSchool: currentUser && currentUser.school ? currentUser.school.id : null,
+            activeSchoolId: activeSchool ? activeSchool.id : null, activeSchoolName: activeSchool ? activeSchool.name : null,
+            settingsName: storage.getSettings() ? storage.getSettings().school_name : null
+        });
+    } catch (e) { /* диагностиката не бива да чупи приложението */ }
+}
+
 function applyProfile(profile) {
     currentUser = profile;
     isSuperAdmin = !!profile.is_super_admin;
     isAdmin = !!profile.is_admin;                 // админ на избраното/собственото училище (не важи за глобален изглед)
     currentTeacher = profile.name;
-    activeSchool = profile.school || null;
+    activeSchool = profile.school || null;     // сървърът решава: teacher = собственото училище; супер админ = избраното
+    schoolDebug("applyProfile");
 }
 
 // Данни на активното училище: график (интервали), класове, консултации, настройки.
@@ -764,6 +780,7 @@ async function saveSchoolSettings(btn) {
     setBusy(btn, true, "Записване...");
     try {
         await storage.saveSettings(v.value);       // RPC admin_update_school_settings (само админ, проверка на сървъра)
+        if (activeSchool) activeSchool = { ...activeSchool, name: storage.getSettings().school_name };   // сървърът преименува и училището
         renderHeader();
         fillSettingsForm();
         showAdminStatus("Настройките са запазени.", "success");
@@ -897,7 +914,8 @@ async function contextChanged() {
     try {
         const p = await auth.loadProfile({ id: currentUser.id, email: currentUser.email });
         return !!p.blocked || !!p.is_super_admin !== isSuperAdmin || !!p.is_admin !== isAdmin ||
-            (p.school ? p.school.id : null) !== (activeSchool ? activeSchool.id : null);
+            (p.school ? p.school.id : null) !== (activeSchool ? activeSchool.id : null) ||
+            (p.school ? p.school.name : null) !== (activeSchool ? activeSchool.name : null);
     } catch (error) {
         console.error(error);
         return false;                                 // временна грешка: не изхвърляме потребителя
@@ -1844,6 +1862,7 @@ async function manageSchool(id) {
         isAdmin = true;                                        // супер админ е админ на избраното училище
         setSchedule(null);
         await loadSchoolData();
+        schoolDebug("manageSchool");
         startRealtime();
         showTeacherScreen();
     } catch (error) {
