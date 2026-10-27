@@ -77,7 +77,7 @@ begin
 
   -- ===================== 2. СЛЕД: структура =====================
   foreach t in array array['schools','school_email_domains','school_memberships','super_admins','super_admin_context','school_invites',
-                           'school_schedule_settings','school_intervals','multi_school_audit'] loop
+                           'school_schedule_settings','school_intervals','multi_school_audit','super_admin_invites'] loop
     perform pg_temp.pf_chk(S2, 'таблица public.' || t, to_regclass('public.' || t) is not null, 'ERROR');
   end loop;
   foreach t in array array['teachers','classes','group_subjects','consultations','consultation_classes','school_settings'] loop
@@ -86,7 +86,7 @@ begin
   end loop;
   foreach t in array array['teachers','classes','group_subjects','consultations','consultation_classes','school_settings','schools',
                            'school_email_domains','school_memberships','super_admins','super_admin_context','school_invites',
-                           'school_schedule_settings','school_intervals','multi_school_audit','consultation_stage_shifts'] loop
+                           'school_schedule_settings','school_intervals','multi_school_audit','consultation_stage_shifts','super_admin_invites'] loop
     if to_regclass('public.' || t) is not null then
       perform pg_temp.pf_chk(S2, 'RLS е включен: ' || t, (select relrowsecurity from pg_class where oid = ('public.' || t)::regclass), 'ERROR');
     end if;
@@ -102,7 +102,9 @@ begin
       'super_list_school_admins','admin_list_domains','admin_add_domain','admin_update_domain','admin_remove_domain','admin_invite_teacher',
       'admin_cancel_invite','admin_list_users','admin_set_member_role','admin_delete_teacher','admin_update_school_settings','admin_add_class',
       'admin_set_group_subject','admin_clear_consultations','admin_schedule_change_impact','admin_set_schedule_mode','admin_save_interval',
-      'admin_delete_interval','resolve_registration_school','enforce_email_domain','handle_new_user'] loop
+      'admin_delete_interval','resolve_registration_school','enforce_email_domain','handle_new_user',
+      'bootstrap_first_super_admin','super_list_super_admins','super_add_super_admin','super_remove_super_admin',
+      'super_cancel_super_admin_invite','_pending_super_invite'] loop
     perform pg_temp.pf_chk(S2, 'функция ' || t, exists (select 1 from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
                                                           where ns.nspname = 'public' and p.proname = t), 'ERROR');
   end loop;

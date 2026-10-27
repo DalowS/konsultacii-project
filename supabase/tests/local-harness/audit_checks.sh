@@ -24,7 +24,7 @@ before_c=$(q ms_au "$SNAP"); before_cc=$(q ms_au "$SNAP_CC"); before_t=$(q ms_au
 [ -n "$before_cc" ] && [ "$before_cc" != "" ] && ok "снимката на връзките не е празна" || bad "снимката на връзките е празна (безсмислена проверка)"
 n_c=$(q ms_au "select count(*) from public.consultations"); n_cc=$(q ms_au "select count(*) from public.consultation_classes")
 echo "== Миграция върху стари данни (+2 стари невалидни часа, +стар unique индекс)"
-apply ms_au "$NEW_MIGRATIONS" && ok "всички 4 миграции се прилагат" || bad "миграциите се провалиха"
+apply ms_au "$NEW_MIGRATIONS" && ok "всички 5 миграции се прилагат" || bad "миграциите се провалиха"
 chk "консултации: ID/учител/ден/смяна/час/предмет/място непроменени (md5)" "$(q ms_au "$SNAP")" "$before_c"
 chk "връзки консултация-клас непроменени (md5)" "$(q ms_au "$SNAP_CC")" "$before_cc"
 chk "учители: ID/име/роля непроменени (md5)" "$(q ms_au "$SNAP_T")" "$before_t"

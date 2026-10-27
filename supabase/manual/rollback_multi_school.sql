@@ -83,6 +83,7 @@ alter table public.school_settings add constraint school_settings_single_row che
 drop table if exists public.school_intervals, public.school_schedule_settings, public.school_invites,
                      public.super_admin_context, public.super_admins, public.school_email_domains,
                      public.school_memberships cascade;
+drop table if exists public.super_admin_invites cascade;   -- v3.1 (20261016)
 drop table if exists public.schools cascade;
 -- multi_school_audit се ЗАПАЗВА (доказателство за броя записи).
 
@@ -100,7 +101,10 @@ drop function if exists public.get_my_context(), public.set_active_school(uuid),
   public._slot_valid(uuid, int, int), public._only_school_id(), public._set_school_id(), public._school_id_immutable(),
   public._sync_membership_to_teacher(), public._schools_seed_schedule(), public._seed_default_schedule(uuid),
   public._seed_two_shift_intervals(uuid, int), public._default_interval(int), public._default_academic_year(),
-  public._is_public_mail_domain(text), public._validate_shift_intervals(uuid, int);
+  public._is_public_mail_domain(text), public._validate_shift_intervals(uuid, int),
+  public.bootstrap_first_super_admin(text, int), public.super_list_super_admins(), public.super_add_super_admin(text),
+  public.super_remove_super_admin(uuid), public.super_cancel_super_admin_invite(bigint),
+  public._pending_super_invite(text), public._require_super();
 
 commit;
 

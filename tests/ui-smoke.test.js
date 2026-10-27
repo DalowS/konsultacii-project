@@ -1132,13 +1132,13 @@ test("v2.9: бизнес правилата са непроменени (сво�
 });
 
 /* ===================== v2.9 – завършване ===================== */
-test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна); след нея са само четирите v3.0; 20261010 има домейн trigger и RLS", () => {
+test("v2.9 миграции: 20261011 връща свободния избор на смяна (без етап->смяна); след нея са само v3.0/v3.1; 20261010 има домейн trigger и RLS", () => {
     const dir = path.join(__dirname, "..", "supabase", "migrations");
     const files = fs.readdirSync(dir).filter(f => f.endsWith(".sql")).sort();
     // v3.0 добавя САМО нови миграции след 20261011 (старите не се редактират – вж. теста с контролните суми)
     assert.deepEqual(files.slice(files.indexOf("20261011000000_free_shift_selection.sql") + 1), [
         "20261012000000_multi_school_foundation.sql", "20261013000000_multi_school_access_control.sql", "20261014000000_school_schedule_config.sql",
-        "20261015000000_multi_school_hardening.sql"]);
+        "20261015000000_multi_school_hardening.sql", "20261016000000_super_admin_bootstrap.sql"]);
     const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
     const m11 = strip(fs.readFileSync(path.join(dir, "20261011000000_free_shift_selection.sql"), "utf8"));
     assert.match(m11, /create or replace function public\._save_consultation\(/);
@@ -1280,4 +1280,26 @@ test("v3.0 PGRST201: всеки embed в .select() е уточнен с !<FK> и
     assert.match(st, /teachers!consultations_teacher_school_fk\(name\)/);
     assert.match(st, /consultation_classes!consultation_classes_consultation_school_fk\(classes!consultation_classes_class_school_fk\(name\)\)/);
     assert.doesNotMatch(st.replace(/\/\/[^\n]*/g, ""), /[,"]teachers\(|[(,]classes\(|[,"]consultation_classes\(/);
+});
+
+/* ===================== v3.1 – bootstrap на супер админ ===================== */
+test("v3.1: миграция 20261016 – bootstrap, покана за супер админ, без изключване на RLS/CS001", () => {
+    const dir = path.join(__dirname, "..", "supabase", "migrations");
+    const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+    const m = strip(fs.readFileSync(path.join(dir, "20261016000000_super_admin_bootstrap.sql"), "utf8"));
+    assert.match(m, /create table if not exists public\.super_admin_invites/);
+    assert.match(m, /enable row level security/);
+    assert.doesNotMatch(m, /disable row level security|drop trigger|drop table|truncate/i);
+    assert.match(m, /bootstrap_first_super_admin[\s\S]*exists \(select 1 from public\.super_admins\)/);
+    assert.match(m, /revoke all on function public\.bootstrap_first_super_admin/);
+    assert.match(m, /resolve_registration_school\(new\.email\)/);        // училищната логика е запазена
+    assert.doesNotMatch(m, /gen_random_uuid|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/); // без измислени UUID
+});
+test("v3.1: фронтендът няма изпращане на school_id/role при регистрация и има екран за супер админи", () => {
+    const auth = fs.readFileSync(path.join(__dirname, "..", "js", "auth.js"), "utf8");
+    assert.match(auth, /options: \{ data: \{ name \} \}/);
+    const st = fs.readFileSync(path.join(__dirname, "..", "js", "storage.js"), "utf8");
+    for (const f of ["super_list_super_admins", "super_add_super_admin", "super_remove_super_admin", "super_cancel_super_admin_invite"])
+        assert.ok(st.includes(f), f);
+    assert.match(fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8"), /id="superAdminsTable"/);
 });

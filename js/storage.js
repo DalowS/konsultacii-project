@@ -290,6 +290,26 @@ const storage = {
         if (error) throw error;
     },
 
+    // ---------- v3.1: супер администратори (само супер админ; сървърът проверява) ----------
+    async listSuperAdmins() {
+        const { data, error } = await sb.rpc("super_list_super_admins");
+        if (error) throw error;
+        return data || [];
+    },
+    async addSuperAdmin(email) {
+        const { data, error } = await sb.rpc("super_add_super_admin", { p_email: email });
+        if (error) throw error;
+        return data;                     // 'granted' | 'invited'
+    },
+    async removeSuperAdmin(userId) {
+        const { error } = await sb.rpc("super_remove_super_admin", { p_user: userId });
+        if (error) throw error;
+    },
+    async cancelSuperAdminInvite(id) {
+        const { error } = await sb.rpc("super_cancel_super_admin_invite", { p_id: id });
+        if (error) throw error;
+    },
+
     // ---------- v3.0: домейни и покани ----------
     async loadDomains(schoolId) {
         const { data, error } = await sb.rpc("admin_list_domains", { p_school: schoolId || null });

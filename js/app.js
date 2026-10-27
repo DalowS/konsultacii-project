@@ -1,7 +1,7 @@
 /* Приложение "График за консултации" – UI слой (данни: storage.js, вход: auth.js, логика: logic.js). */
 "use strict";
 // Маркер за версията – в Console трябва да се вижда при зареждане; помага да се познае стар кеш/недокачен деплой.
-const APP_BUILD = "3.0.2 (embed FK: consultations_teacher_school_fk)";
+const APP_BUILD = "3.1.0 (auth bootstrap + super admins)";
 console.info("[График за консултации] build " + APP_BUILD);
 
 const CONFIG = {
@@ -672,9 +672,14 @@ async function submitAuth() {
     } catch (error) {
         console.error(error);
         const invalid = /invalid login credentials/i.test(error.message || "");
-        const dbReject = authMode === "register" && /database error saving new user|домейн|покана/i.test(error.message || "");
+        const emsg = error.message || "";
+        const dbReject = authMode === "register" && /database error saving new user|домейн|покана|училище/i.test(emsg);
+        // Auth хукът връща конкретно българско съобщение (неизвестен/двусмислен/неактивен домейн) – показва се както е.
+        // Тригерът в базата връща само общо „Database error saving new user“ – тогава изброяваме възможните причини.
+        const serverReason = dbReject && /[а-яА-Я]/.test(emsg) ? emsg : null;
         showAuthMessage(invalid ? "Грешен имейл или парола."
-            : dbReject ? "Регистрацията не е разрешена за този имейл. Използвайте имейл от домейна на училището си или поискайте покана от администратор."
+            : serverReason ? serverReason
+            : dbReject ? "Регистрацията не е разрешена за този имейл: домейнът не е регистриран от училище, принадлежи на повече от едно училище или училището е неактивно. Използвайте имейл от домейна на училището си или поискайте покана от администратор."
             : friendlyError(error, authMode === "register" ? "Неуспешна регистрация. Моля, опитайте отново." : "Неуспешен вход. Моля, опитайте отново."), "error");
     } finally {
         setBusy(btn, false);
@@ -1662,9 +1667,76 @@ async function showSchoolsScreen() {
     try {
         await storage.loadSchools();
         renderSchoolsList();
+        await loadSuperAdmins();
     } catch (error) {
         console.error(error);
         schoolMsg(friendlyError(error, "Неуспешно зареждане на училищата."), "error");
+    }
+}
+
+// ---------- v3.1: супер администратори ----------
+let superAdminRows = [];
+async function loadSuperAdmins() {
+    try {
+        superAdminRows = await storage.listSuperAdmins();
+    } catch (error) {
+        console.error(error);
+        superAdminRows = [];
+        schoolMsg(friendlyError(error, "Неуспешно зареждане на супер администраторите."), "error");
+    }
+    renderSuperAdmins();
+}
+
+function renderSuperAdmins() {
+    const table = document.getElementById("superAdminsTable");
+    if (!table) return;
+    const fmt = v => v ? new Date(v).toLocaleDateString("bg-BG") : "—";
+    table.innerHTML = `<thead><tr><th>Имейл</th><th>Статус</th><th>От / до</th><th></th></tr></thead><tbody>` +
+        (superAdminRows.length ? superAdminRows.map(r => r.kind === "admin" ? `
+        <tr><td>${escapeHtml(r.email)}${r.is_me ? " (вие)" : ""}</td><td>Активен</td><td>${escapeHtml(fmt(r.created_at))}</td>
+            <td class="cell-actions-col"><button class="btn-danger btn-compact" onclick="removeSuperAdminAction('${escapeHtml(r.user_id)}')">Премахни</button></td></tr>` : `
+        <tr><td>${escapeHtml(r.email)}</td><td>${r.status === "expired" ? "Изтекла покана" : "Покана (чака регистрация)"}</td><td>до ${escapeHtml(fmt(r.expires_at))}</td>
+            <td class="cell-actions-col"><button class="btn-secondary btn-compact" onclick="cancelSuperAdminInviteAction(${Number(r.invite_id)})">Отмени</button></td></tr>`).join("")
+        : `<tr><td colspan="4" style="padding:16px;">Няма записи.</td></tr>`) + `</tbody>`;
+}
+
+async function addSuperAdminAction(btn) {
+    const v = validateInviteEmail(document.getElementById("superAdminEmail").value);
+    if (!v.ok) { schoolMsg(v.error, "error"); return; }
+    if (!confirm(`Да бъде ли даден достъп на супер администратор на ${v.email}?\n\nТой ще управлява ВСИЧКИ училища.`)) return;
+    setBusy(btn, true, "Добавяне...");
+    try {
+        const res = await storage.addSuperAdmin(v.email);
+        document.getElementById("superAdminEmail").value = "";
+        await loadSuperAdmins();
+        schoolMsg(res === "granted" ? `${v.email} вече е супер администратор.`
+            : `Създадена е покана за ${v.email}. Правата се дават при създаване на профил с този имейл.`, "success");
+    } catch (error) {
+        console.error(error);
+        schoolMsg(friendlyError(error, "Неуспешно добавяне на супер администратор."), "error");
+    } finally { setBusy(btn, false); }
+}
+
+async function removeSuperAdminAction(userId) {
+    if (!confirm("Да бъдат ли премахнати правата на този супер администратор?")) return;
+    try {
+        await storage.removeSuperAdmin(userId);
+        await loadSuperAdmins();
+        schoolMsg("Правата са премахнати.", "success");
+    } catch (error) {
+        console.error(error);
+        schoolMsg(friendlyError(error, "Неуспешно премахване."), "error");
+    }
+}
+
+async function cancelSuperAdminInviteAction(id) {
+    try {
+        await storage.cancelSuperAdminInvite(id);
+        await loadSuperAdmins();
+        schoolMsg("Поканата е отменена.", "success");
+    } catch (error) {
+        console.error(error);
+        schoolMsg(friendlyError(error, "Неуспешна отмяна."), "error");
     }
 }
 

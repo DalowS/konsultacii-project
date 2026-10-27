@@ -203,6 +203,17 @@
             <div class="schedule-wrapper"><table id="schoolsTable"></table></div>
         </div>
 
+        <div class="card" id="superAdminsCard">
+            <h3>Супер администратори</h3>
+            <p class="muted small">Супер администраторите управляват всички училища. Правото се дава на ТОЧЕН имейл, а не на цял домейн.
+                Ако потребителят още няма профил, се създава покана – валидна 7 дни, използва се при създаване на профила с този имейл.</p>
+            <div class="schedule-wrapper"><table id="superAdminsTable"></table></div>
+            <div class="inline-form">
+                <input id="superAdminEmail" type="email" placeholder="admin@edu.mon.bg" maxlength="254" autocomplete="off" aria-label="Имейл на нов супер администратор">
+                <button id="superAdminAddBtn" type="button" class="btn-secondary" onclick="addSuperAdminAction(this)">Добави супер администратор</button>
+            </div>
+        </div>
+
         <div id="schoolDetail" class="card hidden" aria-live="polite">
             <h3 id="schoolDetailTitle">Училище</h3>
             <input id="schoolDetailId" type="hidden">
@@ -240,6 +251,8 @@
                 <input id="schAdminEmail" type="email" placeholder="имейл на регистриран потребител" maxlength="254" aria-label="Имейл на администратор">
                 <button type="button" class="btn-secondary" onclick="addSchoolAdminAction()">Назначи за администратор</button>
             </div>
+            <p class="muted small">Администраторът не е длъжен да ползва домейна на училището (напр. admin@edu.mon.bg): първо го поканете
+                (Управлявай → Покани), а след регистрацията го назначете тук.</p>
         </div>
     </section>
 
@@ -554,11 +567,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/config.js?v=3.0.2"></script>
-<script src="js/logic.js?v=3.0.2"></script>
-<script src="js/supabase.js?v=3.0.2"></script>
-<script src="js/storage.js?v=3.0.2"></script>
-<script src="js/auth.js?v=3.0.2"></script>
-<script src="js/app.js?v=3.0.2"></script>
+<script src="js/config.js?v=3.1.0"></script>
+<script src="js/logic.js?v=3.1.0"></script>
+<script src="js/supabase.js?v=3.1.0"></script>
+<script src="js/storage.js?v=3.1.0"></script>
+<script src="js/auth.js?v=3.1.0"></script>
+<script src="js/app.js?v=3.1.0"></script>
 </body>
 </html>
